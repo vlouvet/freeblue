@@ -1,0 +1,10 @@
+[package]
+name = "freeblue-read"
+description = "Read path: obtain AACS-content-encrypted (non-bus) Aligned Units from a disc/drive"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }

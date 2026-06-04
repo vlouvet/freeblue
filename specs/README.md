@@ -119,6 +119,7 @@ production code exists yet; status tracks how complete/cited each spec is.
 | 08 | [08-reference-implementation.md](08-reference-implementation.md) | Proposed clean-room implementation: module layout, libbluray/libaacs relationship, language | 📋 Design |
 | 09 | [09-validation-and-test-vectors.md](09-validation-and-test-vectors.md) | KATs (**6 green on real discs**), the MakeMKV golden-diff oracle, the disc corpus | 📋 Design |
 | 10 | [10-legal-and-licensing.md](10-legal-and-licensing.md) | Clean-room discipline, DMCA / interoperability posture, no-keys-in-repo policy, license | 📄 Reference |
+| 11 | [11-read-path-and-bus-encryption.md](11-read-path-and-bus-encryption.md) | The read layer: bus encryption (BEE), the `UnitReader` trait, LibreDrive RE — the live-disc last mile | 📋 Design |
 
 ## One-paragraph summary
 

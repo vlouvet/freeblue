@@ -150,6 +150,17 @@ first-class scope item (spec 00 §0.4) and roadmap phase (README), not a defect 
 the decryption math. **[?]:** the exact bus-key derivation / where BEE is flagged
 in the Unit Key File / CCI (lift from `libaacs` `mmc.c` + the AACS spec).
 
+> **✅ [Disc] — "just use a LibreDrive drive" does NOT work.** Re-tested Turbo in a
+> LibreDrive-capable drive (LG WH16NS60): MakeMKV reported *"Using LibreDrive mode"*
+> and read the disc, but a **plain `mount`+`dd` read of the same disc still
+> returned bus-encrypted data** (raw 1/32 TS-sync; freeblue decrypt 1-2/32, fails).
+> LibreDrive is **not** a drive state that ordinary OS reads (`READ(10/12)` SCSI)
+> inherit — it is a *vendor-SCSI command path MakeMKV speaks for its own reads*.
+> So spec 08 §8.5.1 backend #2 (`LibreDriveReader`) must **itself issue the
+> LibreDrive commands**; a LibreDrive-capable drive plus a normal read is
+> insufficient. This rules out the obvious shortcut and pins the real work item:
+> reverse the LibreDrive read command set.
+
 ## 4.4 The MKB on disc
 
 - Located in `/AACS/` (§4.1); read as a raw blob and handed to spec 03's parser.

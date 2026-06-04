@@ -6,6 +6,7 @@ members = [
     "crates/freeblue-mkb",
     "crates/freeblue-content",
     "crates/freeblue-disc",
+    "crates/freeblue-read",
     "crates/freeblue-core",
     "crates/freeblue-cli",
 ]
@@ -35,6 +36,7 @@ freeblue-keys = { path = "crates/freeblue-keys" }
 freeblue-mkb = { path = "crates/freeblue-mkb" }
 freeblue-content = { path = "crates/freeblue-content" }
 freeblue-disc = { path = "crates/freeblue-disc" }
+freeblue-read = { path = "crates/freeblue-read" }
 freeblue-core = { path = "crates/freeblue-core" }
 
 [profile.release]

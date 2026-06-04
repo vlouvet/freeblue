@@ -76,9 +76,11 @@ user-supplied (spec 06). On-disc structure parsing is spec 04.
 disc tested — the drive bus-encrypts content on transfer, so a plain read does
 **not** yield AACS-content-encrypted bytes. Getting clean input for those discs
 needs a **non-bus-encrypted read path** (LibreDrive-style, or AACS auth + bus
-key; spec 08 §8.5.1) — a drive-interaction concern that sits *before* the
-decryption core, not inside it. The crypto core is correct regardless; the
-read-path is the live-disc last mile.
+key; spec 08 §8.5.1, spec 11) — a drive-interaction concern that sits *before* the
+decryption core, not inside it. The crypto core is correct regardless (now
+byte-matched to MakeMKV on real non-BEE content, spec 11 §11.4.5); the read-path
+is the live-disc last mile, and the BEE/UHD bus layer is the one decrypt step not
+yet verified on a real disc (spec 12 §12.1).
 
 ## 0.5 Relationship to rippidydoodah
 

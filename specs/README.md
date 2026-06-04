@@ -12,7 +12,7 @@ AACS 2.0 as a non-goal ("no working FLOSS decryption exists; deferred",
 [rdd spec 00 §0.3](../../rippidydoodah/specs/00-overview.md)). `freeblue` is the
 work that would close that gap and let `rdd` drop the "no UHD" caveat.
 
-## ✅ Validation status — the decryption core is proven on real discs
+## ✅ Validation status — the decrypt core is proven, and byte-matched to MakeMKV
 
 Every cryptographic step has been **byte-verified against real discs** (a v1
 Blu-ray, *Game of Thrones: Conquest & Rebellion* MKBv63, and a v2 UHD structure
@@ -20,18 +20,26 @@ dump, *The Warning* MKBv82) using the public AACS books, `libaacs` source, and
 the community `keydb.cfg`. The whole pipeline reproduces ground truth exactly:
 
 ```
-processing key ──[MKB 0x04/0x05 + verify 0x81]──► Media Key   ✅ derived == keydb M   (GoT)
-Media Key      ──[Kvu = AES-G(Km, IDv)]─────────► VUK         ✅ AES-G(M,I)==V         (GoT + UHD)
-VUK            ──[Kcu = AES-128D(Kvu, ·)]───────► Unit Key     ✅ in Unit_Key_RO.inf    (UHD)
-Unit Key+seed  ──[AES-128E⊕seed, AES-128-CBC]───► plaintext    ✅ 32/32 TS-sync         (GoT)
+processing key ──[MKB 0x04/0x05 + verify 0x81]──► Media Key   ✅ derived == keydb M        (GoT)
+Media Key      ──[Kvu = AES-G(Km, IDv)]─────────► VUK         ✅ AES-G(M,I)==V              (GoT + UHD)
+VUK            ──[Kcu = AES-128D(Kvu, ·)]───────► Unit Key     ✅ in Unit_Key_RO.inf         (UHD)
+Unit Key+seed  ──[AES-128E⊕seed, AES-128-CBC]───► plaintext    ✅ byte-identical to MakeMKV  (GoT, live SCSI capture)
 ```
 
-AACS 2.0's on-disc formats (MKB record types, Unit Key file, certs) are confirmed
-from a real UHD disc. The "v2 = v1 crypto" thesis is therefore proven at the byte
-level for the key hierarchy; the **only** unproven step is decrypting one real
-*v2 content* Aligned Unit, which needs a UHD disc's `STREAM/*.m2ts`. **No
-production code exists yet** — these were reference validations; spec 08 / the
-integration roadmap (bottom of this file) is the remaining engineering.
+The content step is now verified the strongest way possible: real GoT disc content
+captured **live off the SCSI bus** (an `SG_IO` shim under `makemkvcon`) decrypts,
+via the actual `freeblue-content` code, to output **byte-identical to MakeMKV's own
+decrypted m2ts** (6112/6144 bytes; the only delta is the per-packet TP_extra_header
+copy bit MakeMKV clears) — spec 11 §11.4.5. This `[Disc]`-validates the capture
+path, Aligned-Unit alignment, keydb unit-key lookup, and the decrypt core together,
+against an independent oracle.
+
+**Production code exists and passes** — 7 implemented crates, 35 deterministic KATs
++ 4 fixture-gated real-disc tests (spec 08, spec 09). The **one** step not yet
+live-verified is the **bus-encryption (BEE) layer** UHD discs add: its algorithm is
+implemented and KAT-tested (`bus_decrypt_unit`) but has not been byte-checked
+against a real BEE capture, because `makemkvcon` currently hangs reading the only
+BEE disc on hand. Open items are tracked in **spec 12**.
 
 ## What this is and is not
 
@@ -103,8 +111,9 @@ to **[Disc]**-verified; **git-ignored**, contain keys/structures per spec 10):
 ## Reading order
 
 **Status** legend: 📄 Reference · 📋 Design · 🚧 Draft · ⬜ Outline only ·
-✅ **[Disc]-verified** (math reproduced byte-for-byte against a real disc). No
-production code exists yet; status tracks how complete/cited each spec is.
+✅ **[Disc]-verified** (math reproduced byte-for-byte against a real disc).
+Implementing crates exist and pass (spec 08); status tracks how complete/cited
+each spec is and whether its code has landed.
 
 | # | File | What it covers | Status |
 |---|------|----------------|--------|
@@ -117,9 +126,10 @@ production code exists yet; status tracks how complete/cited each spec is.
 | 06 | [06-key-sources-and-sgx-provisioning.md](06-key-sources-and-sgx-provisioning.md) | SGX/EPID key provisioning (background); **KEYDB.cfg format (verified)** | 📄 Reference |
 | 07 | [07-makemkv-reverse-engineering.md](07-makemkv-reverse-engineering.md) | RE methodology: Ghidra targets, MakeMKV oracle, byte-match protocol | 📋 Design |
 | 08 | [08-reference-implementation.md](08-reference-implementation.md) | Proposed clean-room implementation: module layout, libbluray/libaacs relationship, language | 📋 Design |
-| 09 | [09-validation-and-test-vectors.md](09-validation-and-test-vectors.md) | KATs (**6 green on real discs**), the MakeMKV golden-diff oracle, the disc corpus | 📋 Design |
+| 09 | [09-validation-and-test-vectors.md](09-validation-and-test-vectors.md) | KATs (**35 green**, 4 fixture-gated), the MakeMKV golden-diff oracle (now realized — spec 11 §11.4.5), the disc corpus | 📋 Design |
 | 10 | [10-legal-and-licensing.md](10-legal-and-licensing.md) | Clean-room discipline, DMCA / interoperability posture, no-keys-in-repo policy, license | 📄 Reference |
-| 11 | [11-read-path-and-bus-encryption.md](11-read-path-and-bus-encryption.md) | The read layer: bus encryption (BEE), the `UnitReader` trait, LibreDrive RE — the live-disc last mile | 📋 Design |
+| 11 | [11-read-path-and-bus-encryption.md](11-read-path-and-bus-encryption.md) | The read layer: bus encryption (BEE), the `UnitReader` trait, LibreDrive RE; §11.4.5 byte-vs-MakeMKV verification of the capture+decrypt path | ✅ Verified (non-BEE) / 🚧 BEE |
+| 12 | [12-known-issues-and-deferred-work.md](12-known-issues-and-deferred-work.md) | Known issues, open bugs, deferred work, and validation traps — the live register | 🚧 Living |
 
 ## One-paragraph summary
 
@@ -150,30 +160,37 @@ it.
 
 ## Roadmap: making `rdd` rip UHD via `freeblue`
 
-The algorithms are proven; the **library is not written**. Work, in dependency
-order (✅ = algorithm already verified, just needs implementing):
+The algorithms are proven **and the library is implemented** — the decrypt half is
+done and byte-matched to MakeMKV; the remaining work is the BEE/UHD read path and
+`rdd` integration. (✅ = landed + tested; 🚧 = stub/partial.)
 
-**Phase 1 — Implement the `freeblue` library** (Rust, spec 08). Each crate lands
-test-first against the vectors already proven on real discs (spec 09 §9.10.1):
+**Phase 1 — `freeblue` library** (Rust, spec 08). Lands test-first against the
+vectors proven on real discs (spec 09 §9.10.1, spec 11 §11.4.5):
 1. `freeblue-crypto` ✅ — AES-128 E/D/CBC, `AES-G = AES-128D(k,d)⊕d`, `AES-G3`
-   (seed `0x7B10…3BD9`, middle output = Kpc). Tiny; all constants pinned.
+   (seed `0x7B10…3BD9`, middle output = Kpc). All constants pinned.
 2. `freeblue-keys` ✅ — `KEYDB.cfg` parser (disc-id + `D/M/I/V/U`; `DK/PK/HC`
-   records), zeroized store. Format known (spec 06 §6.5).
-3. `freeblue-mkb` ✅ — TLV parser + processing-key→media-key (spec 03 §3.4.2:
-   `mk=AES-128D(Kpc,cvalue)`, `mk[12:16]^=uv`, verify `0x81`/`0x86`).
+   records), zeroized store (spec 06 §6.5).
+3. `freeblue-mkb` ✅ — TLV parser + processing-key→media-key (spec 03 §3.4.2).
 4. `freeblue-content` ✅ — aligned-unit `block_key=AES-128E(Kcu,seed)⊕seed`,
-   AES-128-CBC, IV `0x0BA0F8DD…`, clear 16-B seed (spec 05 §5.3).
-5. `freeblue-disc` — read `/AACS/MKB_RO.inf`, `Unit_Key_RO.inf`, certs; **read
-   raw `STREAM/*.m2ts`**. ⚠️ A plain UDF read only works for **non-BEE** discs;
-   **bus-encryption (BEE) discs — including UHD — need a non-bus-encrypted read**
-   (LibreDrive-style, or AACS auth + bus key). See spec 04 §4.3.2. This is the
-   real last-mile dependency for live UHD ripping, not the crypto.
-6. `freeblue-core` — orchestrate to plaintext M2TS (the spec 00 §0.4 contract).
+   AES-128-CBC, IV `0x0BA0F8DD…`, clear 16-B seed (spec 05); **plus
+   `bus_decrypt_unit`** for the BEE layer (spec 11 §11.4.3, algorithm `[E]`).
+5. `freeblue-disc` ✅ — reads `/AACS/MKB_RO.inf`, `Unit_Key_RO.inf`, certs; raw
+   `STREAM/*.m2ts` via folder/image source (spec 04).
+6. `freeblue-read` ✅/🚧 — `UnitReader` trait + `PlainUdfReader` (non-BEE, works);
+   `LibreDriveReader`/`AacsAuthReader` are stubs — the BEE/UHD read path is the
+   real open work (spec 11, spec 12 §12.2). ⚠️ A plain read only works for
+   **non-BEE** discs; **BEE discs (incl. UHD) need a non-bus-encrypted read.**
+7. `freeblue-core` ✅ — orchestrates `UnitReader` → decrypt → plaintext M2TS
+   (`decrypt_clip`, spec 00 §0.4 contract).
+8. `freeblue-cli` 🚧 — `freeblue decrypt`/`verify` binary, still a stub.
 
 **Phase 2 — Close the v2-only gaps.**
 - v2 MKB types (`0x86` verify etc.) in the parser (spec 03 §3.3.1) — additive.
-- One **v2 content byte-match** (the last unproven step) — decrypt a real UHD
-  `STREAM/*.m2ts` Aligned Unit (spec 05 §5.8). Needs a UHD disc in hand.
+- **Non-BEE content byte-match: DONE** — GoT disc content captured live decrypts
+  byte-identical to MakeMKV (spec 11 §11.4.5). The remaining content gap is the
+  **BEE/UHD bus-layer byte-match**: capture one real bus-encrypted UHD Aligned Unit
+  + its session `read_data_key` and confirm `bus_decrypt_unit` (spec 12 §12.1).
+  Blocked: `makemkvcon` hangs on the only BEE disc on hand.
 - **Key/Volume-ID acquisition strategy** (the real fork):
   - *Disc in the community keydb* → `V`(VUK)+`U`(Unit Key)+`I`(Volume ID) are
     supplied directly; **no drive auth, no device keys needed** — the 80% path,

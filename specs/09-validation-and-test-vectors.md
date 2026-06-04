@@ -57,6 +57,14 @@ The end-to-end test (spec 07 §7.2):
 A pass on ≥1 disc of each crypto generation present in the corpus is the
 implementation's definition of done (spec 00 §0.8, spec 08).
 
+**✅ Realized (non-BEE, 2026-06-04, spec 11 §11.4.5):** this oracle has been run
+for real. A live `SG_IO` capture of GoT content over the bus, decrypted by
+`freeblue-content`, is **byte-identical to MakeMKV's decrypted m2ts** — `6112/6144`
+bytes, the only delta being the per-packet TP_extra_header copy bit MakeMKV clears
+(`0xD2`→`0x12`). That is the §9.3 step 3 diff, passing. **Still owed:** the same
+byte-match on a **BEE/UHD** disc (the bus layer, spec 12 §12.1) — currently blocked
+by `makemkvcon` hanging on the only BEE disc on hand (spec 12 §12.3).
+
 ## 9.4 Failure taxonomy (so a diff localizes the bug)
 
 | Symptom | Likely cause | Spec |

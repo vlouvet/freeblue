@@ -144,6 +144,18 @@ disc (§5.3.1):
 - **[?]** Multi-CPS-unit key selection per clip (§5.2, depends on spec 04 §4.5) —
   the one genuinely open content-layer item (the test disc is single-unit).
 - **[?]** v2-specific content-layer change — current evidence says **none** (the
-  key hierarchy is byte-identical v1↔v2, spec 06 §6.5.2); the only unproven piece
-  is decrypting a real v2 *Aligned Unit* (needs a UHD disc's M2TS, not just its
-  structure dump). This is the last byte-match to fully close the "v2 = v1" thesis.
+  key hierarchy is byte-identical v1↔v2, spec 06 §6.5.2); the open byte-match is
+  decrypting a real v2 *Aligned Unit*, which is now gated on the **BEE bus layer**
+  (UHD discs are BEE — spec 11), not on the content cipher. Tracked in spec 12 §12.1.
+
+### 5.8 Verification update — byte-identical to MakeMKV ✅ [Disc]
+
+`decrypt_aligned_unit` is now confirmed the strongest way: real GoT disc content
+captured **live off the SCSI bus** (spec 11 §11.4.5) decrypts to output
+**byte-identical to MakeMKV's own decrypted m2ts** — `6112/6144` bytes exact. The
+only differing bytes are **byte 0 of each 192-byte M2TS packet**: the
+TP_extra_header copy/encryption indicator, which the disc sets (`0xD2`) and MakeMKV
+clears post-decrypt (`0x12 = 0xD2 & 0x3F`). The 6128-byte payload and the rest of
+each packet header are identical. This upgrades §5.3.1's self-judged "32/32 TS-sync"
+to an **independent-oracle byte-match**. Whether `freeblue` should also clear those
+2 CPI bits in its output is a deferred output-formatting decision (spec 12 §12.4).

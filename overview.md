@@ -11,7 +11,7 @@ an *already-decrypted* stream and explicitly defers UHD/AACS 2.0 as a non-goal.
 
 ## Start here
 
-→ **[specs/README.md](specs/README.md)** — the specification series (00–10) and
+→ **[specs/README.md](specs/README.md)** — the specification series (00–12) and
 reading order. The specs are the deliverable; the implementation is downstream.
 
 Core technical path: [02 key hierarchy](specs/02-key-hierarchy-and-crypto-primitives.md)
@@ -50,10 +50,14 @@ To obtain and cite (not recall) — see [spec 02 §2.1](specs/02-key-hierarchy-a
 
 ## Status
 
-Specs 00–10 complete; the **decryption core is byte-verified on real discs**
-(processing-key→media-key, Kvu, unit-key unwrap, content CBC — spec 09 §9.10.1).
-Rust workspace scaffolded; `freeblue-crypto`/`-mkb`/`-content` implemented with
-passing KATs; keys/disc/read/core/cli remain. The live-disc last mile is the
-**read path** for bus-encryption (BEE) discs (incl. UHD) — spec 04 §4.3.2,
-spec 08 §8.5.1. See the [confidence model](specs/00-overview.md) (spec 00 §0.6)
-and the [roadmap](specs/README.md).
+Specs 00–12 complete; the **decrypt core is byte-verified on real discs** and, for
+non-BEE content, **byte-identical to MakeMKV through a live SCSI capture** (spec 09
+§9.10.1, spec 11 §11.4.5). The Rust workspace is built out — `freeblue-crypto`,
+`-mkb`, `-content` (incl. `bus_decrypt_unit`), `-keys`, `-disc`, `-read`
+(`PlainUdfReader`), `-core` are implemented (35 passing tests); only `-cli` is a
+stub. The live-disc last mile is the **BEE/UHD read path**: the bus-encryption
+layer's algorithm is implemented + KAT'd but not yet byte-checked on a real BEE
+capture, and `LibreDriveReader` does no SCSI of its own yet. Open items live in
+[spec 12](specs/12-known-issues-and-deferred-work.md). See the
+[confidence model](specs/00-overview.md) (spec 00 §0.6) and the
+[roadmap](specs/README.md).

@@ -44,17 +44,18 @@ overview.md     One-page project intro.
 
 ## Build & test
 
-Requires Rust 1.75 (pinned in `rust-toolchain.toml`). On the build host:
+Requires Rust 1.75 (pinned in `rust-toolchain.toml`; `cargo` is rustup-managed at
+`~/.cargo/bin` — ensure it's on `PATH`):
 
 ```sh
 cargo build
-cargo test            # unit KATs (deterministic, no secrets)
+cargo test            # unit KATs (deterministic, no secrets) — 9 pass, 3 ignored
 cargo test -- --ignored   # KATs needing $FREEBLUE_FIXTURES (real disc data)
 ```
 
-`cargo` is not installed on every host here; the implemented crates
-(`freeblue-crypto`, `-mkb`, `-content`) carry deterministic KATs that must pass
-on first `cargo test` on the build machine.
+The implemented crates (`freeblue-crypto`, `-mkb`, `-content`) carry deterministic
+KATs (FIPS-197 AES, AES-G/AES-G3 vectors, the content block-key vector) that
+encode the `[Disc]`-verified algorithms and pass on `cargo test`.
 
 ## Working agreement & legal
 

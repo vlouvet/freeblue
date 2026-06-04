@@ -96,6 +96,39 @@ where
         .map(move |u| decrypt_aligned_unit(&unit_key, &u))
 }
 
+/// Per-unit failure from [`decrypt_clip`]: a read I/O error or a content-cipher
+/// error (kept distinct so the caller can tell a drive/read problem from a
+/// decode problem).
+#[derive(Debug, thiserror::Error)]
+pub enum ClipError {
+    #[error("read: {0}")]
+    Read(#[source] std::io::Error),
+    #[error("decrypt: {0:?}")]
+    Decrypt(ContentError),
+}
+
+/// End-to-end clip decrypt — the §0.4 contract (spec 08 §8.4): read a clip's raw
+/// (content-encrypted, non-bus) Aligned Units via `reader` and decrypt each with
+/// `unit_key` → plaintext M2TS units, **lazily**. Resolve `unit_key` first with
+/// [`resolve_unit_key`].
+///
+/// The *opening* read can fail with [`freeblue_read::ReadError`] (e.g. the disc
+/// is **bus-encrypted** and this reader can't strip it — route a BEE disc to a
+/// LibreDrive/AACS reader instead, spec 11). Per-unit failures surface as
+/// [`ClipError`]. The reader is kept behind `&mut dyn UnitReader` so the verified
+/// decrypt stays decoupled from *which* read backend supplies the bytes.
+pub fn decrypt_clip<'a>(
+    reader: &'a mut dyn freeblue_read::UnitReader,
+    clip: &freeblue_read::ClipId,
+    unit_key: Block,
+) -> Result<impl Iterator<Item = Result<Vec<u8>, ClipError>> + 'a, freeblue_read::ReadError> {
+    let units = reader.read_units(clip)?;
+    Ok(units.map(move |r| {
+        let unit = r.map_err(ClipError::Read)?;
+        decrypt_aligned_unit(&unit_key, &unit).map_err(ClipError::Decrypt)
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,5 +220,72 @@ mod tests {
             results.next(),
             Some(Err(ContentError::BadUnitLength(100)))
         ));
+    }
+
+    use freeblue_read::{ClipId, ReadError, Unit, UnitIter, UnitReader};
+
+    /// An in-memory reader: yields fixed units, or a fixed opening/per-unit error
+    /// — exercises [`decrypt_clip`]'s read→decrypt wiring without a disc.
+    struct FakeReader {
+        units: Vec<std::io::Result<Unit>>,
+        bus_encrypted: bool,
+    }
+    impl UnitReader for FakeReader {
+        fn read_units(&mut self, _clip: &ClipId) -> Result<UnitIter<'_>, ReadError> {
+            if self.bus_encrypted {
+                return Err(ReadError::BusEncrypted);
+            }
+            let units = std::mem::take(&mut self.units);
+            Ok(Box::new(units.into_iter()))
+        }
+    }
+
+    fn unit(fill: u8, seed: &str) -> Unit {
+        let mut u = [fill; freeblue_read::ALIGNED_UNIT_LEN];
+        u[..16].copy_from_slice(&h(seed));
+        u
+    }
+
+    #[test]
+    fn decrypt_clip_reads_then_decrypts_each_unit() {
+        let key = h("00112233445566778899AABBCCDDEEFF");
+        let u0 = unit(0x11, "0102030405060708090A0B0C0D0E0F10");
+        let u1 = unit(0x22, "1112131415161718191A1B1C1D1E1F20");
+        let mut reader = FakeReader {
+            units: vec![Ok(u0), Ok(u1)],
+            bus_encrypted: false,
+        };
+        let out: Vec<_> = decrypt_clip(&mut reader, &ClipId::default(), key)
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0], decrypt_aligned_unit(&key, &u0).unwrap());
+        assert_eq!(out[0][..16], u0[..16], "clear seed passes through");
+        assert_eq!(out[1][..16], u1[..16]);
+    }
+
+    #[test]
+    fn decrypt_clip_surfaces_a_bus_encrypted_disc_on_open() {
+        let key = h("00112233445566778899AABBCCDDEEFF");
+        let mut reader = FakeReader {
+            units: vec![],
+            bus_encrypted: true,
+        };
+        let err = decrypt_clip(&mut reader, &ClipId::default(), key)
+            .err()
+            .unwrap();
+        assert!(matches!(err, ReadError::BusEncrypted));
+    }
+
+    #[test]
+    fn decrypt_clip_propagates_a_per_unit_read_error() {
+        let key = h("00112233445566778899AABBCCDDEEFF");
+        let mut reader = FakeReader {
+            units: vec![Err(std::io::Error::new(std::io::ErrorKind::Other, "boom"))],
+            bus_encrypted: false,
+        };
+        let mut it = decrypt_clip(&mut reader, &ClipId::default(), key).unwrap();
+        assert!(matches!(it.next(), Some(Err(ClipError::Read(_)))));
     }
 }

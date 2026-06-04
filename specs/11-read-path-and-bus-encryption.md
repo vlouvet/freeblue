@@ -137,13 +137,121 @@ extracted secret, is **the open question** — and it explains why a *separate*
 plain `dd` after MakeMKV exits still gets bus-encrypted data (§11.1): the
 extracted-secret/state lives in MakeMKV's process, not the drive.
 
-**Next RE step (`[?]`):** the CDB trace gives commands but **not data**. Capture
-the READ BUFFER *responses* and the READ(10) *data* (via `SG_IO` buffer capture /
-`strace -e` with buffer dump, or a USB/SATA analyzer) and check: does READ(10)
-data == on-disc AACS-content-encrypted bytes (→ `LibreDriveReader` = "0x3C unlock
-+ plain READ(10)") or == bus-encrypted (→ we must replicate the bus-key removal
-using the `0x3C`-extracted secret). That decides how thin/thick `LibreDriveReader`
-can be.
+**Resolved by SG_IO data capture (`[Disc]`, prior session):** READ(10) returns
+**bus-encrypted** bytes — a captured content buffer failed all 32 candidate unit
+keys at every alignment. So `LibreDriveReader` is **thick**: scrape a secret via
+`0x3C`, READ(10), **bus-decrypt**, then hand AACS-content-encrypted units to the
+verified core. (That captured READ(10) failed *because* there was no bus-decrypt
+step in between — see §11.4.3.)
+
+### 11.4.3 The bus-decryption algorithm — ✅ [E] (libaacs reference, citation-only)
+
+The AACS bus-encryption read path is fully specified in the `libaacs` reference
+(read as an oracle per CLAUDE.md Rule 2 — **protocol facts/constants only, no code
+copied**). It is structurally identical to AACS content decryption, which
+`freeblue` already byte-verifies (spec 05). The two layers, in order:
+
+1. **Bus-decrypt** the unit (cite `aacs.c:_decrypt_unit_bus` / `aacs_decrypt_bus`):
+   - Gate: only if `unit[0] & 0xC0` (the same "encrypted" flag content uses).
+   - Granularity is the **2048-byte sector**, *not* the 6144 unit
+     (`#define SECTOR_LEN 2048 /* bus encryption block size */`, `aacs.c:47`).
+     A 6144 unit = **3 sectors**; bus-decrypt each independently.
+   - Per sector: **leave bytes `[0..16)` as-is**, AES-128-**CBC**-decrypt bytes
+     `[16..2048)` (2032 B) with key = **`read_data_key`**, IV = the **same AACS
+     IV** `0x0BA0F8DDFEA61FB3D8DF9F566A050F78` freeblue already has as
+     `CONTENT_IV` (cite `crypto.c:crypto_aacs_decrypt`).
+2. **AACS content-decrypt** the (now non-bus) unit — freeblue's proven path
+   (spec 05): per-unit seed in `[0..16)`, `block_key = AES-128E(Kcu,seed)⊕seed`,
+   AES-128-CBC over `[16..6144)`.
+
+The **`read_data_key`** is the only new secret:
+`read_data_key = AES-128-D(bus_key, encrypted_read_data_key)` (cite
+`mmc.c:_read_data_keys`), where `bus_key` is the ECDH AKE output
+(`crypto.c:crypto_create_bus_key`: low 128 bits of the x-coord of
+`host_priv × drive_point`) and `encrypted_read_data_key` is reported by the drive.
+The legit path needs an **unrevoked host cert** for the AKE (the `AacsAuthReader`
+blocker, §11.3.3). **LibreDrive sidesteps the AKE** by scraping the drive's RAM —
+so what its `0x3C/0x77` reads extract must be the `read_data_key` itself (or the
+`bus_key` + `encrypted_read_data_key` to derive it).
+
+**This collapses the remaining RE to a search with a hard oracle.** The Turbo unit
+key is known (keydb). For any candidate 16-byte `read_data_key` K and a captured
+bus-encrypted unit U (with `U[0] & 0xC0`):
+`ts_sync_score(aacs_decrypt(unit_key, bus_decrypt(K, U))) ≈ 32` **iff** K is
+correct. So: capture the `0x3C` responses + one READ(10) unit, then brute-test
+every 16-byte window in the `0x3C` dumps as K against the oracle. A hit *is* the
+key and proves the whole thick-reader model end to end.
+
+**Next RE step (`[?]` → mechanical):** capture `0x3C/0x77` response buffers + a
+content READ(10) unit (LD_PRELOAD `SG_IO` shim on `makemkvcon`, BEE disc = Turbo
+on sr0), then run the window-search oracle above. Then (optional, fully drive-only
+ripping) replay MakeMKV's `0x3C` offset sequence ourselves to scrape K without
+MakeMKV in the loop.
+
+### 11.4.4 Bus decryption — 🚧 algorithm [E], live verification NOT YET achieved
+
+The §11.4.3 algorithm (bus = AES-128-CBC per 2048-B sector, key `read_data_key`,
+IV = `CONTENT_IV`) is a faithful read of the `libaacs` reference and is implemented
++ KAT-tested (`freeblue-content::bus_decrypt_unit`, synthetic round-trip). What is
+**not** yet done is confirming it against a **real captured bus-encrypted unit** —
+and a first capture attempt produced a cautionary false positive worth recording.
+
+**The `ts_sync_score ≥ 31` oracle is too weak to identify keys by itself.** An
+`SG_IO` shim under `makemkvcon backup disc:0` (Turbo, LG WH16NS60) captured 209
+`0x3C/0x77` reads + 24 `READ(10)`s. Brute-searching every 16-byte window of the
+`0x3C` data as a candidate `read_data_key` found **two different `(read_data_key,
+unit_key)` pairs that each "decrypt" 54/120 units to 31/32 TS-sync** — but to
+**byte-different** plaintexts (PIDs `0x0DBF` vs `0x026E`). Both are spurious:
+
+- The captured `READ(10)` buffers are **near-zero entropy** (mean ≈ 0.3 bits/byte)
+  at **low LBAs (32–528)** — i.e. UDF/BDMV **metadata**, not the high-entropy
+  (~8.0) encrypted m2ts. In the kill window, `backup` never reached title content.
+- CBC-decrypting low-entropy/zero data with many keys yields **periodic `0x47`**;
+  the "31 packets" were identical (constant ATS, one PID) — not real video.
+
+**Lesson (load-bearing):** verifying a key needs a **strong** oracle — real
+high-entropy content + structural TS checks (monotonic ATS, incrementing
+continuity counters, plausible BDAV PIDs like `0x1011`), or a byte-match against a
+known-good decrypt — never bare sync-byte cadence on whatever sectors happened to
+be read.
+
+**Next step:** re-capture with the shim **entropy-gated** to keep only
+high-entropy `READ(10)`s (or let `makemkvcon mkv` of the main title run long enough
+to read real content), then re-run the search with the strong oracle and the
+keydb unit key pinned by the disc's **Volume ID** (not guessed from 5 candidates).
+Until then the live LibreDrive path stays `[?]`; only the *algorithm* is `[E]`.
+
+### 11.4.5 Capture path + content decrypt — ✅ [Disc] VERIFIED byte-vs-MakeMKV (GoT)
+
+The whole **read+decrypt apparatus** is proven on a real disc by a byte match
+against MakeMKV's own output. An `SG_IO` shim under `makemkvcon backup --decrypt
+disc:1` (GoT, non-BEE, on the iHBS212) captured the `READ(10)` content **and**
+MakeMKV wrote its **decrypted** `BDMV/STREAM/*.m2ts` — a ground-truth oracle.
+Taking captured (encrypted) `READ(10)` units, aligning to Aligned-Unit boundaries,
+and running `freeblue-content::decrypt_aligned_unit` with the **keydb unit key**:
+
+- Recovered units are **32/32 TS-sync** and **byte-identical to MakeMKV's
+  plaintext** — `6112/6144` bytes exact. The only differences are **byte 0 of each
+  192-byte M2TS packet** (offset 0, 192, 384, …): the **TP_extra_header
+  copy-permission/encryption indicator**. The disc has the top bits set (`0xD2`);
+  MakeMKV clears them post-decrypt (`0x12 = 0xD2 & 0x3F`). The 6128-byte payload +
+  the other 3 header bytes are **identical**. (freeblue may optionally clear those
+  2 bits to match players' expectations — a 1-byte-per-packet cosmetic step, not
+  decryption.)
+
+This `[Disc]`-verifies, against an independent oracle (not a self-judged TS score):
+the `SG_IO` capture shim, the entropy gate, **Aligned-Unit alignment**, the keydb
+unit-key parse/lookup, and `decrypt_aligned_unit` — end to end on real bus traffic.
+
+**Key correction to §11.1/§11.4.4 layering:** a `READ(10)` over LibreDrive on a
+**non-BEE** disc is **content-encrypted only — NOT bus-encrypted**. `content_decrypt`
+alone yields 32/32 (and the byte match above); no `read_data_key` is involved. So
+**bus encryption is a property of BEE discs, not of LibreDrive reads in general.**
+⇒ a `LibreDriveReader` for non-BEE discs is the thin path (capture → align →
+`decrypt_aligned_unit`) and is *proven now*; the **thick** bus-strip path (§11.4.3)
+is needed **only for BEE/UHD** and still awaits a real BEE-content capture (the
+Turbo disc currently hangs `makemkvcon` at "Reading Disc information", so no BEE
+content has transited the bus to test against).
 
 ## 11.5 BEE detection (which path to pick)
 

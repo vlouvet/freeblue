@@ -79,6 +79,7 @@ dependencies = [
  "freeblue-disc",
  "freeblue-keys",
  "freeblue-mkb",
+ "freeblue-read",
  "hex",
  "thiserror",
 ]

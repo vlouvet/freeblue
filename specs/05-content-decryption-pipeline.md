@@ -1,6 +1,6 @@
 # 05 — Content Decryption Pipeline
 
-> **Status:** 🚧 Draft — the final arrow: from a title/unit key `Ku` to plaintext
+> **Status:** ✅ Verified — the final arrow: from a title/unit key `Ku` to plaintext
 > M2TS bytes. This is the right-hand side of spec 00 §0.4 and the step whose
 > output the MakeMKV byte-match oracle (spec 09) checks. v1 content encryption is
 > **[E]**; v2 is assumed identical here (the talk reports no content-layer change
@@ -99,6 +99,12 @@ M2TS.
 - **No seamless-branching / playlist assembly.** `freeblue` decrypts the
   clip(s); assembling clips into a title in play order is `rdd` spec 03/06.
   (`freeblue` only needs the clip→CPS-unit→key mapping, §5.2.)
+- **No bus-key handling.** This spec assumes its input is already
+  AACS-content-encrypted bytes. On **bus-encryption (BEE)** discs the *read* must
+  strip the bus-encryption layer first (spec 04 §4.3.2, spec 08 §8.5.1); that is
+  a read-path concern (`freeblue-read`) upstream of this pipeline. Verified: this
+  content decrypt is byte-correct on a non-BEE disc (GoT, §5.3.1) and would be
+  identical on a BEE disc *given a non-bus-encrypted read*.
 
 ## 5.6 Performance shape (forward ref to spec 08)
 

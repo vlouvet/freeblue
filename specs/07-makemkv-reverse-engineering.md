@@ -109,11 +109,28 @@ interoperability-grounded:
   the code), and document provenance. Full posture and the
   reverse-engineering-for-interoperability rationale: spec 10.
 
-## 7.7 Output of this process
+## 7.7 Output of this process — and what actually resolved the core
 
-A living table (maintained in this spec or spec 09) mapping every `[?]` →
-{hypothesis, deciding test, status, KAT id}. The project is "spec-complete"
-(spec 00 §0.8) when that table has no unresolved `[?]` in specs 02–05.
+A living table mapping every `[?]` → {hypothesis, deciding test, status, KAT id}.
+The project is "spec-complete" (spec 00 §0.8) when that table has no unresolved
+`[?]` in specs 02–05.
+
+**In practice, the decryption core was resolved without MakeMKV behavioral RE or
+Ghidra.** The deciding oracles turned out to be:
+1. **The public AACS books** (`[CCE]`, `[BD]`) — exact AES-G, AES-G3 (seed
+   `0x7B10…3BD9`), Kvu, content CBC, and the media-key verify constant.
+2. **`libaacs` source** (`[libaacs]`) — confirmed the algorithms byte-for-byte
+   and pinned the subtle bits (the `mk[12:16]^=uv` step, the `uvs+1+a*5` offset).
+3. **Real disc data + the community keydb** (`[Disc]`) — the actual byte-matches
+   that turned `[E]` into proven: media-key derivation, Kvu, unit-key unwrap, and
+   content all reproduced on GoT/The Warning (spec 09 §9.10.1).
+
+So the MakeMKV-as-oracle (§7.2) and Ghidra (§7.5) machinery was **not needed** for
+the v1-shared core. It remains the fallback for the genuinely v2-only residuals
+(the v2 device-key→processing-key path, the v2 verify constant, the
+`freeblue-read` BEE bus-key handling) once a v2 key set is in hand. The lesson:
+prefer the public-docs + `libaacs` + real-disc-byte-match path; reach for
+behavioral/static RE only where those leave a gap.
 
 ## 7.8 Open questions
 

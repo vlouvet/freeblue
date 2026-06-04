@@ -50,6 +50,10 @@ To obtain and cite (not recall) — see [spec 02 §2.1](specs/02-key-hierarchy-a
 
 ## Status
 
-Specification drafted (specs 00–10); no code yet. Most technical claims are
-tagged `[?]` (RE-pending) and become `[E]` only when a MakeMKV byte-match earns
-it — see the [confidence model](specs/00-overview.md) (spec 00 §0.6).
+Specs 00–10 complete; the **decryption core is byte-verified on real discs**
+(processing-key→media-key, Kvu, unit-key unwrap, content CBC — spec 09 §9.10.1).
+Rust workspace scaffolded; `freeblue-crypto`/`-mkb`/`-content` implemented with
+passing KATs; keys/disc/read/core/cli remain. The live-disc last mile is the
+**read path** for bus-encryption (BEE) discs (incl. UHD) — spec 04 §4.3.2,
+spec 08 §8.5.1. See the [confidence model](specs/00-overview.md) (spec 00 §0.6)
+and the [roadmap](specs/README.md).

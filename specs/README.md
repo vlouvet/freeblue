@@ -163,7 +163,10 @@ test-first against the vectors already proven on real discs (spec 09 §9.10.1):
 4. `freeblue-content` ✅ — aligned-unit `block_key=AES-128E(Kcu,seed)⊕seed`,
    AES-128-CBC, IV `0x0BA0F8DD…`, clear 16-B seed (spec 05 §5.3).
 5. `freeblue-disc` — read `/AACS/MKB_RO.inf`, `Unit_Key_RO.inf`, certs; **read
-   raw (encrypted) `STREAM/*.m2ts`** off the UDF volume (no libaacs).
+   raw `STREAM/*.m2ts`**. ⚠️ A plain UDF read only works for **non-BEE** discs;
+   **bus-encryption (BEE) discs — including UHD — need a non-bus-encrypted read**
+   (LibreDrive-style, or AACS auth + bus key). See spec 04 §4.3.2. This is the
+   real last-mile dependency for live UHD ripping, not the crypto.
 6. `freeblue-core` — orchestrate to plaintext M2TS (the spec 00 §0.4 contract).
 
 **Phase 2 — Close the v2-only gaps.**
@@ -177,6 +180,11 @@ test-first against the vectors already proven on real discs (spec 09 §9.10.1):
   - *Disc not in keydb* → need the **v2 device keys** (user-sourced) + the
     **Volume ID**, which requires either a v2 P-256 host cert for AACS drive↔host
     auth or a LibreDrive-style raw read (spec 04 §4.3). Hard path.
+- **Bus encryption (BEE)** — ⚠️ verified blocker (spec 04 §4.3.2). On BEE discs
+  (most 2013+ BDs *and* the UHD disc tested) a plain read returns bus-encrypted
+  data the content cipher can't remove — even with correct keys. Needs a
+  non-bus-encrypted read (LibreDrive or AACS-auth bus key). This is the gating
+  dependency for live UHD ripping; the decrypt core is unaffected.
 
 **Phase 3 — `rdd` integration** (touches rdd spec 02 *disc-access-and-decryption*
 and spec 11 *arm-integration*):

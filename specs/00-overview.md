@@ -63,13 +63,22 @@ conference talk, an NDA'd AACS LA document set, or the closed source of MakeMKV.
 ## 0.4 Scope boundary (the one-line contract)
 
 ```
-freeblue input:   encrypted UHD Blu-ray volume  +  AACS 2.0 device key set
+freeblue input:   AACS-content-encrypted M2TS  +  AACS key material
 freeblue output:  plaintext M2TS elementary-stream bytes, == MakeMKV's output
 ```
 
-Everything left of the `+` is on-disc structure parsing (spec 04). The device
-key set is supplied by the user (spec 06). Everything to the right is the
-decryption pipeline (specs 02, 03, 05). Validation is spec 09.
+Everything to the right of `output:` is the **decryption pipeline** (specs 02, 03,
+05) — `[Disc]`-verified end-to-end (spec 09 §9.10.1). The key material is
+user-supplied (spec 06). On-disc structure parsing is spec 04.
+
+**The input boundary has a wrinkle the project learned from a real disc (spec 04
+§4.3.2):** on **bus-encryption (BEE)** discs — most 2013+ Blu-rays *and* the UHD
+disc tested — the drive bus-encrypts content on transfer, so a plain read does
+**not** yield AACS-content-encrypted bytes. Getting clean input for those discs
+needs a **non-bus-encrypted read path** (LibreDrive-style, or AACS auth + bus
+key; spec 08 §8.5.1) — a drive-interaction concern that sits *before* the
+decryption core, not inside it. The crypto core is correct regardless; the
+read-path is the live-disc last mile.
 
 ## 0.5 Relationship to rippidydoodah
 

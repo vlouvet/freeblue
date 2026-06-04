@@ -1,6 +1,6 @@
 # 03 — Media Key Block and Revocation
 
-> **Status:** 🚧 Draft — how a device key set is turned into a processing key by
+> **Status:** ✅ Verified — how a device key set is turned into a processing key by
 > walking the Media Key Block's subset-difference (SD) tree, and how revocation
 > works. This is spec 02 §2.4.1's "process the MKB" arrow, in full. Tags per
 > spec 00 §0.6.

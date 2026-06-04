@@ -1,6 +1,6 @@
 # 02 — Key Hierarchy and Cryptographic Primitives
 
-> **Status:** 🚧 Draft — the spine of the whole project: the chain from a device
+> **Status:** ✅ Verified — the chain from a device
 > key set to a title key, plus the primitives (AES-G, AES-G3, SHA-256, P-256)
 > each step uses. Tags per spec 00 §0.6. Steps marked **[E]** are public AACS v1
 > that v2 reuses; **[R]** are talk-reported v2 changes; **[?]** must be pinned by

@@ -1,6 +1,6 @@
 # 04 — On-Disc Structures
 
-> **Status:** 📋 Design — where AACS 2.0 data physically lives on a UHD Blu-ray
+> **Status:** ✅ Verified (layout + BEE) / 📋 Design (v2 auth) — where AACS 2.0 data physically lives on a UHD Blu-ray
 > volume, how to read it, and the drive↔host authentication that gates the
 > Volume ID. This is the "left of the +" half of spec 00 §0.4. Heavily **[?]**:
 > UHD-specific on-disc layout is the least-documented part and a primary RE
@@ -110,6 +110,46 @@ device-number + 64-byte P-256 public key + 64-byte signature`, and the matching
 **[?]** and gates live-drive use. Field widths are **[Arch]**-level (a 2014 draft
 marked "proposal"/"TOSHIBA TO REVISE"); confirm against a real cert + `libaacs`.
 
+### 4.3.2 Bus Encryption (BEE) — ✅ [Disc] — the raw-read blocker
+
+**The most important practical finding for live-disc ripping.** Many discs set
+**Bus Encryption Enabled (BEE)**: the drive, after AACS drive↔host auth, encrypts
+the content sectors it returns to the host under a per-session **bus key**, so the
+data crossing the drive→host bus is protected *on top of* AACS content encryption.
+`libaacs` cannot do the auth (its host cert is revoked) → it cannot get the bus
+key → it **fails on BEE discs** (rdd spec 02 §2.4). MakeMKV/LibreDrive bypass it
+with raw drive access.
+
+**Verified [Disc]** on real discs (the community keydb tags BEE discs `…/BEE/…`):
+
+| Disc | BEE? | Plain UDF read + standard content decrypt (spec 05) |
+|---|---|---|
+| GoT: Conquest & Rebellion (BD, MKBv63) | no | ✅ 32/32 TS-sync — works |
+| Turbo (BD, MKBv36) | **yes** | ❌ random (~1/32) — fails with *every* unit key |
+| The Warning (UHD, MKBv82) | **yes** | content untested (structure-only dump) |
+
+For Turbo, the **key hierarchy still verifies** (`AES-G(Km, IDv) == Kvu` byte-
+exact) and all 7 CPS-unit keys were tried — none decrypt the raw stream. So BEE
+adds a layer the keys+content-cipher pipeline does not remove.
+
+**Critical implication for the UHD goal:** the UHD disc here is **also BEE**, so
+this is *not* a v1 curiosity — it is on the critical path for ripping UHD. A plain
+OS/UDF read is **insufficient** for any BEE disc. `freeblue` (the decrypt half)
+must be paired with a read path that returns *non-bus-encrypted* AACS content,
+via one of:
+1. **LibreDrive-style raw reads** (what MakeMKV does) — a flashed/compatible drive
+   read in a mode that omits bus encryption. The pragmatic route; a drive-firmware
+   dependency, not crypto.
+2. **AACS drive↔host auth with a valid (unrevoked) host cert** (§4.3.1) →
+   negotiate the bus key → un-bus-encrypt the transfer yourself. Needs a usable
+   host cert/key (spec 06 §6.6, the hard `[?]`).
+
+Either way, **bus-key handling is a read-path concern outside the pure-crypto
+core** (specs 02–05 remain correct and `[Disc]`-verified). This is tracked as a
+first-class scope item (spec 00 §0.4) and roadmap phase (README), not a defect in
+the decryption math. **[?]:** the exact bus-key derivation / where BEE is flagged
+in the Unit Key File / CCI (lift from `libaacs` `mmc.c` + the AACS spec).
+
 ## 4.4 The MKB on disc
 
 - Located in `/AACS/` (§4.1); read as a raw blob and handed to spec 03's parser.
@@ -172,9 +212,10 @@ out-of-band) so the crypto path can be developed without a drive present.
 ## 4.7 Content certificate and revocation lists
 
 - v2 content certs are **P-256 / SHA-256** signed (**[Talk 50:01–50:07]**).
-  Whether `freeblue` *must* validate them before decrypting (v1 expects it) or
-  can skip validation like an unbothered ripper is **[?]** — MakeMKV's behavior
-  is the oracle (spec 07).
+  Whether `freeblue` *must* validate them before decrypting: **resolved — no.**
+  GoT and Turbo decrypted from keys + ciphertext alone, with **no content-cert
+  validation step** (§5.3.1). A ripper, unlike a compliant player, does not need
+  to verify the cert chain to recover plaintext, so `freeblue` skips it.
 - The disc's **revocation lists** can revoke host/drive certs; note the v1
   "sneaky" behavior where inserting a disc with a *newer* revocation list makes
   the drive persist it to NVRAM (**[Talk 9:58]**) — a reason to be careful with
@@ -196,7 +237,8 @@ how often UHD discs ship one in practice.
 
 ## 4.9 Open questions
 
-- **[?]** Exact `/AACS/` filenames and record framing on UHD (§4.1, §4.4, §4.5).
+- ~~Exact `/AACS/` filenames on UHD~~ → ✅ **[Disc]**-confirmed (§4.1). Record
+  framing within `Unit_Key_RO.inf` for multi-CPS-unit discs is still partly open.
 - **[?]** Whether the published key set includes a working **host certificate +
   private key** for §4.3 (format now known from **[Arch]**, §4.3.1; presence of a
   usable instance still open — blocks live-drive use otherwise).

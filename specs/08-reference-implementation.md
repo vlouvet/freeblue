@@ -1,9 +1,10 @@
 # 08 — Reference Implementation
 
-> **Status:** 📋 Design — the proposed clean-room implementation that the spec
-> (02–06) describes and the oracle (07/09) validates. No code exists yet; this is
-> the shape it should take. Decisions here inherit `rippidydoodah`'s stack so the
-> two projects compose.
+> **Status:** 🚧 Partial — the clean-room implementation. **Scaffolded
+> (2026-06-04):** standalone Rust workspace; `freeblue-crypto`/`-mkb`/`-content`
+> implemented with passing KATs (§8.3); keys/disc/read/core/cli are stubs. This
+> spec is the shape; the verified decrypt core (specs 02–05) is the part already
+> built. Decisions inherit `rippidydoodah`'s stack so the two projects compose.
 
 ## 8.1 Goals for the implementation
 
@@ -40,25 +41,29 @@ style, and the eventual library boundary. Candidate dependencies (pin versions i
 ## 8.3 Module layout (proposed)
 
 ```
-freeblue/                     (workspace; or a crate inside rdd's workspace)
+freeblue/                     (standalone workspace; scaffolded 2026-06-04)
   crates/
-    freeblue-crypto/          primitives: aes_g(), aes_g3(), sha256, p256 wrappers
-                              → spec 02 §2.3. The KAT-first foundation.
-    freeblue-mkb/             MKB parse + SD-tree walk + processing/media key
-                              → spec 03. Depends on -crypto.
-    freeblue-disc/            on-disc structures: MKB/UnitKeyFile/VolumeID/cert
-                              read; drive↔host auth → spec 04. Wraps libbluray.
-    freeblue-keys/            KEYDB.cfg + device-key-set parsing, zeroized store
-                              → spec 06 §6.5.
-    freeblue-content/         aligned-unit content decryption (the pipeline)
-                              → spec 05. Depends on -crypto + -keys.
-    freeblue-core/            orchestration: disc + keys → plaintext M2TS stream
-                              → the spec 00 §0.4 contract. Public library API.
-    freeblue-cli/             `freeblue decrypt`, `freeblue verify`, harness driver
+    freeblue-crypto/   ✅ primitives: aes_128e/d, aes_g, aes_g3 → spec 02 §2.3.
+                          Implemented + KATs pass. The KAT-first foundation.
+    freeblue-mkb/      ✅ MKB TLV parse + processing-key→media-key → spec 03 §3.4.
+                          Implemented + KATs pass. Depends on -crypto.
+    freeblue-content/  ✅ aligned-unit block-key + AES-CBC → spec 05 §5.3.
+                          Implemented + KATs pass. Depends on -crypto.
+    freeblue-keys/     🚧 KEYDB.cfg + device-key-set parse, zeroized → spec 06 §6.5.
+                          Stub; first TDD target.
+    freeblue-disc/     🚧 on-disc structures (MKB/UnitKeyFile/certs) → spec 04. Stub.
+    freeblue-read/     📋 the READ-PATH layer (NEW — see §8.5.1): non-bus-encrypted
+                          stream access for BEE/UHD discs (spec 04 §4.3.2). Not yet
+                          scaffolded; the live-disc last mile.
+    freeblue-core/     🚧 orchestration: disc + keys → plaintext M2TS → §0.4. Partial.
+    freeblue-cli/      🚧 `freeblue decrypt`, `freeblue verify`. Stub.
 ```
 
 Mapping is 1:1 with the spec series on purpose: a failing test in `-mkb` points
-at spec 03; a byte mismatch in `-content` points at spec 05 §5.3.
+at spec 03; a byte mismatch in `-content` points at spec 05 §5.3. The
+decryption-core crates (`-crypto`, `-mkb`, `-content`) are **implemented and
+`[Disc]`-verified** (spec 09 §9.10.1); the disc/read/keys/orchestration crates are
+the remaining work.
 
 ## 8.4 Public API sketch (forward of CLI)
 
@@ -84,7 +89,38 @@ pub fn decrypt_clip(disc: &Disc, keys: &TitleKeys, clip: ClipId)
 
 Signatures are **illustrative**; per parent Rule 1, the real ones land
 test-first. The `Result` error type must distinguish **"keys revoked by MKB"**
-(spec 03 §3.6) and **"Volume ID unavailable"** (spec 04 §4.3) from genuine bugs.
+(spec 03 §3.6), **"Volume ID unavailable"** (spec 04 §4.3), and **"bus-encrypted
+read (BEE)"** (spec 04 §4.3.2) from genuine bugs.
+
+### 8.5.1 The read-path layer (`freeblue-read`) — required for BEE/UHD
+
+Turbo proved (spec 04 §4.3.2) that a plain UDF read is **insufficient** for
+bus-encryption (BEE) discs — and the UHD corpus disc is BEE. So `freeblue` needs
+a read abstraction *separate from* the decrypt core, with pluggable backends:
+
+```rust
+/// Yields raw AACS-content-encrypted (NOT bus-encrypted) 6144-B units.
+pub trait UnitReader {
+    fn read_units(&mut self, clip: ClipId) -> Result<Box<dyn Iterator<Item = Vec<u8>>>>;
+}
+```
+
+Backends, in increasing difficulty:
+1. **`PlainUdfReader`** — a plain UDF/file read. Correct only for **non-BEE**
+   discs (e.g. GoT) and for pre-decrypted-structure folder dumps. Easy; ships
+   first; must *detect BEE and refuse* rather than emit garbage.
+2. **`LibreDriveReader`** — issue the LibreDrive vendor SCSI reads (what MakeMKV
+   uses) to a compatible/flashed drive, returning on-disc (non-bus) content. The
+   pragmatic route for live BEE/UHD discs. A drive-firmware dependency, **not
+   crypto** — reverse the command set from the LibreDrive-enabled read path.
+3. **`AacsAuthReader`** — perform AACS drive↔host auth (AMAC) with an unrevoked
+   host cert (spec 04 §4.3.1), negotiate the bus key, and un-bus-encrypt the
+   transfer ourselves. Needs a usable host cert/key (spec 06 §6.6, hard `[?]`).
+
+Keeping this behind `UnitReader` means the **decrypt core stays read-agnostic and
+already-verified**; only the reader changes per disc. `freeblue-core` selects a
+backend from a BEE flag it reads off the disc (Unit Key File / CCI, spec 04
+§4.3.2 `[?]`).
 
 ## 8.5 Concurrency / performance
 
@@ -128,3 +164,7 @@ read this library and its spec as a reference for adding AACS 2.0 to their C cod
   + non-keydb discs.
 - **[?]** `rdd` consumption shape: external crate vs. git submodule vs. vendored
   (Phase 3; spec 00 §0.5).
+- **[?]** The `freeblue-read` backend for BEE/UHD (§8.5.1) — the live-disc last
+  mile. `LibreDriveReader` (reverse the vendor SCSI read commands) is the likely
+  first viable route; `AacsAuthReader` needs an unrevoked host cert. This is the
+  highest-value *new* work item, distinct from the (verified) decrypt core.

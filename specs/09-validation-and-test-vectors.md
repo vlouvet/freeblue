@@ -107,14 +107,21 @@ fixture (6144 bytes); capture it, add the KAT, then fix.
 Aim for diversity, documented per disc (title withheld/abbreviated; no media in
 repo):
 
-| Property to cover | Why |
-|---|---|
-| Single CPS unit | the common case (spec 05 §5.2) |
-| Multiple CPS units | exercises key selection (spec 04 §4.5) |
-| Pre-key-leak MKB version | keys valid → full pass expected |
-| Post-key-leak MKB version | revoked-by-MKB path (spec 03 §3.6) |
-| Image capture (Volume ID stored) | crypto path without a drive (spec 04 §4.6) |
-| Live-drive capture | drive↔host auth path (spec 04 §4.3) |
+| Property to cover | Why | Have it? |
+|---|---|---|
+| Single CPS unit | the common case (spec 05 §5.2) | ✅ GoT (BD) |
+| Multiple CPS units | exercises key selection (spec 04 §4.5) | ✅ Turbo (7 units) |
+| **non-BEE** disc | raw read + decrypt works end-to-end | ✅ GoT — 32/32 |
+| **BEE** disc | bus-encryption read-path needed (spec 04 §4.3.2) | ✅ Turbo (raw read fails) |
+| v2 / UHD on-disc structures | confirm v2 layout + MKB types | ✅ The Warning (MKBv82, BEE) |
+| Image vs. live-drive | Volume ID with/without drive auth (spec 04 §4.6) | ✅ both modes seen |
+
+The **GoT (no BEE) vs. Turbo (BEE)** pair is the key discriminator: identical
+crypto, opposite raw-read outcomes — it isolates bus-encryption as a *read-path*
+problem, not a decrypt one. A read-path test (spec 08 §8.5.1) must show
+`PlainUdfReader` **detects BEE and refuses** (rather than emitting garbage) and,
+once a `LibreDriveReader`/`AacsAuthReader` exists, that Turbo decrypts to valid
+TS through it.
 
 ## 9.10 The AACS v1 bring-up gate (do this first)
 

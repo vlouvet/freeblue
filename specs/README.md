@@ -35,14 +35,15 @@ PID `0x1011`** — spec 11 §11.4.6, the **first real AACS 2.0 content Aligned U
 decrypted**. Together these `[Disc]`-validate the capture path, Aligned-Unit
 alignment, keydb unit-key lookup, and the decrypt core against independent oracles.
 
-**Production code exists and passes** — 7 implemented crates, 35 deterministic KATs
+**Production code exists and passes** — 7 implemented crates, 36 deterministic KATs
 + 4 fixture-gated real-disc tests (spec 08, spec 09). **The decrypt half is done
-(v1 and UHD).** A key correction landed: **MakeMKV's LibreDrive read returns raw
-disc sectors with no bus-encryption layer, even on BEE/UHD** (spec 11 §11.4.6) — so
-the long-feared "BEE bus layer" is a non-issue for the path we use; it only blocks
-*plain* OS reads. The remaining work is the **read path** — `freeblue` doing the
-LibreDrive SCSI read itself instead of relying on MakeMKV (spec 11 §11.3.2, spec 12
-§12.2). Open items are tracked in **spec 12**.
+(v1 and UHD), and freeblue now reads protected discs on its own — no MakeMKV.** Two
+results landed: (1) **MakeMKV's LibreDrive read returns raw disc sectors with no
+bus-encryption layer, even on BEE/UHD** (spec 11 §11.4.6); and (2) **the LibreDrive
+"unlock" is a static, read-only `READ BUFFER` (`0x3C`) sequence freeblue replays
+itself over `SG_IO`** (spec 11 §11.4.7) — verified on the cold TURBO UHD disc, 8/8
+Aligned Units at 32/32. The remaining work is **glue**: resolving a clip's on-disc
+extent from UDF/BDMV (spec 12 §12.13) and the CLI (§12.10). Open items in **spec 12**.
 
 ## What this is and is not
 
@@ -164,7 +165,8 @@ it.
 ## Roadmap: making `rdd` rip UHD via `freeblue`
 
 The algorithms are proven **and the library is implemented** — the decrypt half is
-done and byte-matched to MakeMKV; the remaining work is the BEE/UHD read path and
+done and byte-matched to MakeMKV, and freeblue reads protected discs itself via the
+LibreDrive unlock (no MakeMKV); the remaining work is extent resolution + CLI and
 `rdd` integration. (✅ = landed + tested; 🚧 = stub/partial.)
 
 **Phase 1 — `freeblue` library** (Rust, spec 08). Lands test-first against the
@@ -179,9 +181,10 @@ vectors proven on real discs (spec 09 §9.10.1, spec 11 §11.4.5):
    `bus_decrypt_unit`** for the BEE layer (spec 11 §11.4.3, algorithm `[E]`).
 5. `freeblue-disc` ✅ — reads `/AACS/MKB_RO.inf`, `Unit_Key_RO.inf`, certs; raw
    `STREAM/*.m2ts` via folder/image source (spec 04).
-6. `freeblue-read` ✅/🚧 — `UnitReader` trait + `PlainUdfReader` (non-BEE, works);
-   `LibreDriveReader`/`AacsAuthReader` are stubs — the BEE/UHD read path is the
-   real open work (spec 11, spec 12 §12.2). ⚠️ A plain read only works for
+6. `freeblue-read` ✅ — `UnitReader` trait + `PlainUdfReader` (folder/non-BEE) +
+   **`LibreDriveReader`**: replays the static read-only LibreDrive unlock over
+   `SG_IO` then raw-`READ(10)`s protected discs — **no MakeMKV** (spec 11 §11.4.7),
+   verified on cold TURBO UHD. (`AacsAuthReader` stays a stub, unneeded.) ⚠️ A plain read only works for
    **non-BEE** discs; **BEE discs (incl. UHD) need a non-bus-encrypted read.**
 7. `freeblue-core` ✅ — orchestrates `UnitReader` → decrypt → plaintext M2TS
    (`decrypt_clip`, spec 00 §0.4 contract).

@@ -12,10 +12,12 @@
 | # | Item | State | Owner spec |
 |---|------|-------|-----------|
 | 12.1 | ~~BEE/UHD bus-layer byte-match~~ → **no bus layer on LibreDrive path; UHD content decrypted** | 🟢 resolved | 11 §11.4.6 |
-| 12.2 | `LibreDriveReader` does no SCSI of its own (depends on MakeMKV) | 🔴 open | 11 §11.3.2 |
+| 12.2 | ~~`LibreDriveReader` depends on MakeMKV~~ → **implemented in Rust/SG_IO; MakeMKV removed** | 🟢 resolved | 11 §11.4.7 |
 | 12.3 | ~~`makemkvcon` hangs on the Turbo UHD disc~~ → fixed by cleaning the disc | 🟢 resolved | — |
 | 12.4 | TP_extra_header copy-bit not cleared in output | 🟡 deferred | 05 §5.8 |
-| 12.5 | Aligned-Unit alignment is per-clip-LBA, not absolute | 🐛 gotcha | 05 §5.1 |
+| 12.5 | ~~Aligned-Unit alignment per-clip-LBA~~ → **reader reads from clip start in whole units** | 🟢 resolved | 11 §11.4.7 |
+| 12.13 | Clip **extent resolution** (UDF/BDMV → start_lba, num_units) not implemented | 🟡 deferred | 11 §11.4.7 |
+| 12.14 | Unlock table is **drive-specific** (WH16NS60 only); other drives need their own | 🟡 deferred | 11 §11.4.7 |
 | 12.6 | `ts_sync_score` is a weak verification oracle | 🟢 lesson | 11 §11.4.4 |
 | 12.7 | Device-key-set file + full SD-tree walk not wired | 🟡 deferred | 03, 06 |
 | 12.8 | Multi-CPS-unit key selection | 🟡 deferred | 04 §4.5 |
@@ -45,22 +47,18 @@ sub-questions about scraping/deriving a `read_data_key` are moot here.
 only by the unused `AacsAuthReader` (spec 11 §11.3.3); if that path is never built,
 consider it dead code to prune.
 
-## 12.2 🔴 `LibreDriveReader` does no SCSI of its own `[?]`
+## 12.2 🟢 `LibreDriveReader` — RESOLVED: implemented in Rust, MakeMKV removed `[Disc]`
 
-The decrypt path is proven (spec 11 §11.4.5), but **`freeblue` cannot yet read a
-protected disc by itself.** `freeblue-read::LibreDriveReader` is a stub; today the
-only way to get content-encrypted units off a real drive is to let **MakeMKV**
-perform the LibreDrive SCSI session and capture the `READ(10)` traffic (the
-`SG_IO` shim in spec 11 §11.4). To stand alone, freeblue needs the **LibreDrive
-unlock/handshake CDB sequence** reverse-engineered (the `READ BUFFER 0x3C/0x77`
-protocol, ~200+ commands observed) so it can put the drive in LibreDrive mode and
-issue the reads itself. This is a drive-firmware/SCSI dependency, **not crypto**
-(spec 11 §11.3.2, §11.4). `AacsAuthReader` (the standards-correct route) needs an
-unrevoked P-256 host cert (spec 06 §6.6) and stays impractical.
-
-**Usable today:** `PlainUdfReader` (non-BEE folder dumps / mounted UDF) feeds the
-proven core. So freeblue decrypts any **non-BEE** content given the units; the open
-work is *acquiring* BEE/UHD units without MakeMKV.
+**`freeblue` now reads a protected disc by itself.** The LibreDrive unlock turned
+out to be a **static, read-only** sequence of `READ BUFFER` (`0x3C/0x77`) commands
+(spec 11 §11.4.7) — no writes, no challenge-response. `freeblue-read` ships a
+minimal `SG_IO` layer (`scsi.rs`), the captured unlock table (`libredrive_unlock.rs`),
+and `libredrive.rs` (replay + raw `READ(10)` streaming); `LibreDriveReader` wires
+them. **Verified end-to-end on the cold TURBO UHD disc with no MakeMKV:** the
+`raw_read` example read 8 Aligned Units that decrypt 8/8 at 32/32 (video PID
+`0x1011`). `AacsAuthReader` (the standards-correct route) remains unbuilt and is now
+unnecessary. Residual items split out as §12.13 (extent resolution) and §12.14
+(per-drive unlock tables).
 
 ## 12.3 🟢 `makemkvcon` hung on the Turbo UHD disc — RESOLVED (disc was dirty)
 
@@ -84,20 +82,19 @@ are identical** (spec 05 §5.8), so this is cosmetic — but some players read t
 bits per packet on output (a 1-byte-per-packet step) or leave the stream byte-exact
 to the disc. If we mask, add a KAT and a `--raw` opt-out.
 
-## 12.5 🐛 Aligned-Unit alignment is per-clip-LBA, not absolute `[Disc]`
+## 12.5 🟢 Aligned-Unit alignment — RESOLVED in the reader `[Disc]`
 
-A 6144-byte Aligned Unit aligns to the **start LBA of its `m2ts` clip**, *not* to
-absolute disc `LBA % 3 == 0`, and a drive `READ(10)` of 16 sectors (32 KB) is
-**not** a whole number of units (32768 / 6144 = 5.33). Naively slicing each 32 KB
-read into 6144-byte units therefore **mis-phases most units** and yields garbage
-that *looks* like a decryption failure. This bit hard during the GoT verification:
-only units that happened to land on a clip-unit boundary decrypted (3 of ~290)
-until alignment was fixed to the clip's first LBA.
+The trap: a 6144-byte Aligned Unit aligns to the **start LBA of its `m2ts` clip**,
+*not* to absolute disc `LBA % 3 == 0`, and a 16-sector (32 KB) `READ(10)` is **not**
+a whole number of units (32768 / 6144 = 5.33). Naively slicing 32 KB reads into
+units mis-phases most of them (it cost us during GoT analysis: 3 of ~290 decrypted).
 
-**Implication for `LibreDriveReader`/any capture consumer:** track the clip's first
-LBA and align units to it; reassemble across read boundaries; do **not** assume
-read-buffer offset 0 is a unit boundary. The decrypt core is fine — this is a
-read-layer bookkeeping rule (spec 05 §5.1, spec 11 §11.2).
+**Fixed in `freeblue-read::libredrive::RawUnitIter`:** it reads starting at the
+clip's first LBA (which *is* a unit boundary) and advances a **whole number of
+units per `READ(10)`** (`BATCH_UNITS × 3` sectors), so units never straddle a read
+boundary. Verified: 8 consecutive units from a clip-aligned start decrypted 8/8 at
+32/32 (spec 11 §11.4.7). Correctness now depends only on the **extent** being right
+(§12.13).
 
 ## 12.6 🟢 `ts_sync_score` alone is a weak verification oracle (lesson)
 
@@ -162,21 +159,44 @@ For anyone re-running the spec 11 capture:
   reseat before blaming tooling (§12.3).
 - Never commit captures, decrypted output, or the keydb (Rule 4); clean `/tmp`.
 
+## 12.13 🟡 Clip extent resolution (UDF/BDMV → start_lba, num_units) `[?]`
+
+`LibreDriveReader` reads a `ClipId::disc_extent = (start_lba, num_units)`, and that
+extent is currently **supplied by the caller** (the `raw_read` example takes it as
+an argument; the verification used a hand-found unit-aligned LBA). For a turnkey
+rip, freeblue must resolve a title/clip → its `m2ts` file → its on-disc extent by
+parsing the **UDF** filesystem + **BDMV** playlists/clip-info. Options: minimal UDF
+reader in `freeblue-disc`, reuse `libudfread`/`libbluray` (as `rdd` does), or — since
+the unlock makes the OS see raw content — mount the disc after unlock and let
+`PlainUdfReader` read the `m2ts` file directly. Until then, `freeblue-disc`'s
+`Image`/`Folder` source + `PlainUdfReader` cover folder dumps.
+
+## 12.14 🟡 Unlock table is drive-specific (WH16NS60 only) `[?]`
+
+`LIBREDRIVE_UNLOCK_WH16NS60` is the exact sequence observed on the LG WH16NS60
+(LibreDrive v06.3). Other drives/firmware almost certainly need their own captured
+table (the offsets index that drive's RAM layout). Generalizing means either a
+per-drive table registry (keyed by INQUIRY id) or RE'ing how MakeMKV *generates*
+the sequence. The Lite-On iHBS212 here is a second LibreDrive drive to capture next.
+Also worth doing: **minimize** the 521-command sequence to the subset that actually
+flips raw mode (the handshake + likely a few reads), for a cleaner, more portable
+unlock.
+
 ---
 
 ## 12.12 Priority for closing
 
-With §12.1 (UHD content decrypted) and §12.3 (disc hang) resolved, the decrypt
-half is **done** (non-BEE *and* UHD, byte/structurally verified). Remaining:
+With §12.1 (UHD content decrypted), §12.2 (standalone LibreDrive reader), §12.3
+(disc hang), and §12.5 (alignment) resolved, **freeblue rips a real UHD disc on its
+own — MakeMKV removed.** Remaining:
 
-1. **§12.2** — RE the LibreDrive unlock SCSI sequence so `freeblue` reads discs
-   without MakeMKV (the standalone-ripper milestone, and the only thing between
-   "decrypts captured units" and "rips a disc itself"). Now known to be a **thin**
-   reader (no bus-strip) — capture → align → `content_decrypt`.
-2. **§12.5 / §12.10** — robust clip-LBA Aligned-Unit alignment in the reader, and
-   the `freeblue-cli` binary.
-3. **§12.4** — the TP_extra_header copy-bit output decision (cosmetic).
-4. **§12.7–§12.9** — non-keydb / device-key / multi-unit paths (needed only outside
-   the ~20k keydb-covered titles).
-5. **§12.1 cleanup** — decide whether to prune `bus_decrypt_unit`/`AacsAuthReader`
-   if the AACS-auth path is never pursued.
+1. **§12.13** — clip extent resolution (UDF/BDMV parsing or mount-after-unlock), so
+   a user names a title instead of an LBA. The last glue for a turnkey rip.
+2. **§12.10** — the `freeblue-cli` binary (`decrypt`/`verify`), wiring
+   disc + keydb + reader + core end to end.
+3. **§12.14** — per-drive unlock tables (capture the iHBS212; minimize the sequence).
+4. **§12.4** — TP_extra_header copy-bit output decision (cosmetic).
+5. **§12.7–§12.9** — non-keydb / device-key / multi-unit paths (only outside the
+   ~20k keydb-covered titles).
+6. **§12.1 cleanup** — prune `bus_decrypt_unit`/`AacsAuthReader` if the AACS-auth
+   path is never pursued.

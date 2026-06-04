@@ -6,14 +6,15 @@ turns an encrypted UHD/BD volume plus user-supplied key material into **plaintex
 M2TS**, so a remuxer like [`rippidydoodah`](../rippidydoodah/) can produce a
 playable `.mkv`.
 
-> **Status:** the **decrypt core + key hierarchy are implemented and verified on
-> real discs through a live SCSI capture** — including the **first real AACS 2.0 /
-> UHD content Aligned Unit decrypted** (TURBO: 32/32 TS-sync, video PID `0x1011`),
-> and v1 output **byte-identical to MakeMKV**. The library is real code (7 crates,
-> 35 passing tests). The remaining work is the **read path**: `freeblue` still
-> relies on MakeMKV to perform the LibreDrive SCSI read; doing that itself is the
-> open item. See [`specs/README.md`](specs/README.md) and the known-issues register
-> in [`specs/12-known-issues-and-deferred-work.md`](specs/12-known-issues-and-deferred-work.md).
+> **Status:** **freeblue reads and decrypts a real UHD/AACS 2.0 disc on its own —
+> no MakeMKV.** It replays the (static, read-only) LibreDrive unlock over `SG_IO`,
+> reads raw sectors, and decrypts them: verified on the **cold** TURBO UHD disc,
+> 8/8 Aligned Units at 32/32 TS-sync (video PID `0x1011`). v1 output is
+> **byte-identical to MakeMKV**. Real code, 7 crates, 36 passing tests. Remaining
+> work is glue: resolving a clip's on-disc extent from UDF/BDMV (today the caller
+> passes it) and a CLI. See [`specs/README.md`](specs/README.md) and the
+> known-issues register in
+> [`specs/12-known-issues-and-deferred-work.md`](specs/12-known-issues-and-deferred-work.md).
 
 ## The pipeline (every step proven on a real disc)
 
@@ -43,7 +44,7 @@ crates/
   freeblue-content   Aligned-Unit decrypt + bus_decrypt_unit (✅ implemented + KATs)
   freeblue-keys      KEYDB.cfg parser                        (✅ implemented + tests)
   freeblue-disc      /AACS/ structures + raw m2ts read       (✅ implemented + tests)
-  freeblue-read      UnitReader trait + PlainUdfReader       (✅ impl; LibreDrive/AacsAuth stubs)
+  freeblue-read      UnitReader: PlainUdfReader + LibreDrive  (✅ LibreDrive unlock via SG_IO — no MakeMKV)
   freeblue-core      orchestration → plaintext M2TS          (✅ implemented + tests)
   freeblue-cli       `freeblue` binary                       (🚧 stub)
 res/            Reference material (git-ignored) — see res/README.md.
@@ -58,7 +59,7 @@ Requires Rust 1.75 (pinned in `rust-toolchain.toml`; `cargo` is rustup-managed a
 
 ```sh
 cargo build
-cargo test            # unit KATs (deterministic, no secrets) — 35 pass, 4 ignored
+cargo test            # unit KATs (deterministic, no secrets) — 36 pass, 4 ignored
 cargo test -- --ignored   # KATs needing $FREEBLUE_FIXTURES (real disc data)
 ```
 

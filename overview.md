@@ -54,12 +54,13 @@ Specs 00–12 complete; the **decrypt core is verified on real discs through liv
 SCSI captures** — v1 (GoT) **byte-identical to MakeMKV** (spec 11 §11.4.5) and the
 **first real UHD/AACS 2.0 content** (TURBO) decrypted to valid TS, video PID
 `0x1011` (spec 11 §11.4.6). The Rust workspace is built out — `freeblue-crypto`,
-`-mkb`, `-content`, `-keys`, `-disc`, `-read` (`PlainUdfReader`), `-core` are
-implemented (35 passing tests); only `-cli` is a stub. **Key finding: MakeMKV's
-LibreDrive read returns raw disc sectors with no bus-encryption layer even on
-BEE/UHD**, so `content_decrypt` alone suffices and the BEE "blocker" is retired
-(spec 11 §11.4.6). The live-disc last mile is now just the **read path** —
-`freeblue` issuing the LibreDrive SCSI read itself instead of relying on MakeMKV.
-Open items live in [spec 12](specs/12-known-issues-and-deferred-work.md). See the
+`-mkb`, `-content`, `-keys`, `-disc`, `-read`, `-core` are implemented (36 passing
+tests); only `-cli` is a stub. **freeblue now reads protected discs on its own — no
+MakeMKV:** the LibreDrive "unlock" is a static, read-only `READ BUFFER` (`0x3C`)
+sequence that `freeblue-read` replays over `SG_IO`, flipping the drive to raw mode;
+then `content_decrypt` (LibreDrive returns no bus layer, spec 11 §11.4.6–7).
+Verified on the **cold** TURBO UHD disc: 8/8 Aligned Units decrypt 32/32, MakeMKV
+nowhere in the loop. Remaining glue is **clip extent resolution** (UDF/BDMV → LBA)
+and a CLI. Open items live in [spec 12](specs/12-known-issues-and-deferred-work.md). See the
 [confidence model](specs/00-overview.md) (spec 00 §0.6) and the
 [roadmap](specs/README.md).

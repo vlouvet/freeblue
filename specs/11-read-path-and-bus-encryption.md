@@ -63,14 +63,14 @@ for non-BEE discs and pre-extracted structure folders. **Must detect BEE and
 refuse** (§11.5) rather than emit garbage. Trivial; covers GoT and any non-BEE
 disc + the offline-fixture path.
 
-### 11.3.2 `LibreDriveReader` — the pragmatic route for BEE/UHD
+### 11.3.2 `LibreDriveReader` — ✅ implemented, the route for BEE/UHD (no MakeMKV)
 
-Speak MakeMKV's LibreDrive vendor-SCSI command path to a compatible drive,
-returning **raw on-disc (content-encrypted, non-bus)** content. This is what makes
-live BEE/UHD ripping work and is the **primary new work item**. A
-drive-firmware/SCSI-protocol dependency, **not crypto**. Requires
-reverse-engineering the command set (§11.4) and a compatible/unlocked drive (the LG
-WH16NS60 and Lite-On iHBS212 here both report LibreDrive v06.3).
+Replay the LibreDrive unlock to a compatible drive over `SG_IO`, then `READ(10)`
+**raw on-disc (content-encrypted, non-bus)** content. This is what makes live
+BEE/UHD ripping work, and it is now **implemented and `[Disc]`-verified without
+MakeMKV** (§11.4.7): a drive-firmware/SCSI dependency, **not crypto**. Needs a
+LibreDrive-capable drive (the LG WH16NS60 and Lite-On iHBS212 here report
+LibreDrive v06.3) and that drive's unlock table (§11.4.7, currently the WH16NS60's).
 
 **`LibreDriveReader` is THIN, not thick** (revised — §11.4.6): because LibreDrive
 returns raw sectors with **no bus layer**, the reader's job is just *issue the
@@ -289,6 +289,39 @@ BEE included — capture → align (to clip LBA, spec 12 §12.5) → `content_de
 `AacsAuthReader` (spec 11 §11.3.3), which the project does not use. The methodology
 trap that produced the earlier wrong "BEE READ(10) is bus-encrypted" reading is in
 §11.4.4 / spec 12 §12.6.
+
+### 11.4.7 The unlock is a static read-only replay — ✅ [Disc], MakeMKV removed
+
+The decisive RE result: **the LibreDrive "unlock" is a fixed sequence of read-only
+`READ BUFFER` (`0x3C`, mode 2, buffer-id `0x77`) commands** — freeblue replays it
+itself, no MakeMKV. Established by:
+
+1. **No writes.** A bidirectional `SG_IO` shim (capturing TO_DEV *and* FROM_DEV)
+   over a MakeMKV session recorded **zero** `WRITE BUFFER`/`SEND KEY` commands — the
+   whole unlock is reads.
+2. **Static.** The `0x3C` CDB sequence is **byte-identical across two independent
+   sessions** (521/521 commands); only a few drive-state *response* bytes differ
+   (a counter), and MakeMKV doesn't compute on them — so there is **no
+   challenge-response**. The sequence: a 64-byte handshake read (returns ASCII
+   `MMkv…LbDr`) + 518 small drive-RAM scrape reads at fixed offsets (`0x120100`,
+   `0x140000…0x14ff00`), in two passes.
+3. **Replay works.** On a **cold** drive (a fresh eject/reload, where content reads
+   are bus-encrypted and decrypt 2/32), replaying the 521 commands via `SG_IO`
+   flips the drive to raw mode: the next `READ(10)` decrypts **32/32**.
+
+**Implemented + verified end-to-end with no MakeMKV.** `freeblue-read` now ships a
+minimal `SG_IO` layer (`scsi.rs`), the captured unlock table
+(`libredrive_unlock.rs`, the WH16NS60 sequence — SCSI CDBs are protocol facts, spec
+§11.6), and `libredrive.rs` (replay + clip-aligned `READ(10)` streaming). The
+`raw_read` example, run as root on the **cold** TURBO UHD disc, read 8 consecutive
+Aligned Units that decrypt **8/8 at 32/32** (video PID `0x1011` + audio) — freeblue
+opening, unlocking, reading, and decrypting a real AACS 2.0 disc entirely on its
+own.
+
+**Open (`[?]`):** the unlock table is the **WH16NS60 / LibreDrive v06.3** sequence;
+other drives/firmware likely need their own captured table (spec 12 §12.2). And the
+clip **extent** (`start_lba`, `num_units`) is currently supplied by the caller —
+resolving it from UDF/BDMV is the remaining glue (spec 12 §12.5).
 
 ## 11.5 BEE detection (which path to pick)
 

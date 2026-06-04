@@ -1,30 +1,38 @@
 # 11 — Read Path and Bus Encryption
 
-> **Status:** 📋 Design — the layer *between the optical drive and the decrypt
-> core*. Specs 02–05 assume their input is already AACS-content-encrypted bytes;
-> this spec covers how to actually obtain those bytes from a real drive, which is
-> non-trivial for **bus-encryption (BEE)** discs — the verified blocker for live
-> UHD ripping (spec 04 §4.3.2). Confidence tags per spec 00 §0.6.
+> **Status:** ✅ Verified (read path) — the layer *between the optical drive and
+> the decrypt core*. **Headline result (2026-06-04, §11.4.6): the LibreDrive read
+> path returns RAW disc sectors — no bus encryption — so a real UHD/AACS 2.0 disc
+> (Turbo, BEE) decrypts with `content_decrypt` alone (32/32, video PID `0x1011`).**
+> Bus encryption (§11.2) afflicts only *plain/AACS-authenticated* reads, not the
+> LibreDrive path we use. This **supersedes** the earlier "BEE is the blocker for
+> UHD" framing below. Confidence tags per spec 00 §0.6.
 
-## 11.1 The problem (recap, ✅ [Disc])
+## 11.1 The problem (recap) — and the key path distinction ✅ [Disc]
 
 The decrypt core is proven (spec 09 §9.10.1), but it can only run if its input is
-**AACS-content-encrypted** M2TS — the bytes as encrypted on the disc. For
-**non-BEE** discs a plain UDF/file read yields exactly that (GoT: 32/32, spec
-§5.3.1). For **BEE** discs the drive applies a second encryption layer (the **bus
-key**, negotiated in AACS drive↔host auth) to the data it returns, so a plain read
-yields **bus-encrypted** bytes the content cipher can't remove.
+**AACS-content-encrypted** M2TS — the bytes as encrypted on the disc. How a read
+yields those bytes depends on the **read path**:
 
-Two findings pin this, both **[Disc]**-verified:
-1. **Turbo (BEE) fails a plain read** — raw 1/32 TS-sync, freeblue decrypt 1-2/32,
-   with the key hierarchy still verifying (`AES-G(Km,IDv)==Kvu`). (spec 04 §4.3.2)
-2. **A LibreDrive-capable drive does not help a plain read** — in the LG WH16NS60,
-   MakeMKV reported "Using LibreDrive mode" yet a separate `mount`+`dd` still
-   returned bus-encrypted data. LibreDrive is a *vendor-SCSI command path MakeMKV
-   speaks*, not a drive state ordinary `READ(10/12)` inherit. (spec 04 §4.3.2)
+| Read path | What it returns | Decrypt needed |
+|---|---|---|
+| **Plain UDF/`dd`**, non-BEE disc | AACS-content-encrypted | `content_decrypt` ✅ |
+| **Plain UDF/`dd`**, **BEE** disc | content-encrypted **+ bus-encrypted** (drive adds a bus-key layer during normal AACS auth) | bus-strip **then** content — **blocked** without the bus key |
+| **LibreDrive** (MakeMKV vendor SCSI), **any** disc incl. BEE/UHD | **RAW disc sectors** — content-encrypted only, **no bus layer** | `content_decrypt` ✅ |
 
-**The UHD corpus disc is also BEE** (spec 04 §4.3.2) — so this is on the critical
-path for the project's actual goal, not a v1 footnote.
+**The correction that matters:** bus encryption is something the **drive** does on a
+*normal authenticated* transfer for a BEE disc. **LibreDrive bypasses the drive's
+AACS auth and reads raw**, so its `READ(10)` output is *not* bus-encrypted — even on
+a BEE/UHD disc. This is `[Disc]`-verified (§11.4.6): GoT m2ts byte-matches MakeMKV;
+Turbo UHD m2ts decrypts 32/32 with `content_decrypt` alone; Turbo's unencrypted JAR
+files come back as plaintext. The earlier "LibreDrive `READ(10)` is bus-encrypted"
+claim (§11.4.3) was measured on **UDF metadata / a plain read** and was wrong for
+the LibreDrive path.
+
+So the **practical** read path is simple: LibreDrive raw read → `content_decrypt`.
+The bus-key machinery (§11.2, §11.4.3) is real AACS but matters only to the
+standards-correct `AacsAuthReader` (which we don't use) — it is **not** on the
+LibreDrive critical path.
 
 ## 11.2 The `UnitReader` abstraction
 
@@ -58,11 +66,19 @@ disc + the offline-fixture path.
 ### 11.3.2 `LibreDriveReader` — the pragmatic route for BEE/UHD
 
 Speak MakeMKV's LibreDrive vendor-SCSI command path to a compatible drive,
-returning on-disc (non-bus) content. This is what makes live BEE/UHD ripping work
-and is the **primary new work item**. A drive-firmware/SCSI-protocol dependency,
-**not crypto**. Requires reverse-engineering the command set (§11.4) and a
-compatible/unlocked drive (the LG WH16NS60 and Lite-On iHBS212 here both report
-LibreDrive v06.3).
+returning **raw on-disc (content-encrypted, non-bus)** content. This is what makes
+live BEE/UHD ripping work and is the **primary new work item**. A
+drive-firmware/SCSI-protocol dependency, **not crypto**. Requires
+reverse-engineering the command set (§11.4) and a compatible/unlocked drive (the LG
+WH16NS60 and Lite-On iHBS212 here both report LibreDrive v06.3).
+
+**`LibreDriveReader` is THIN, not thick** (revised — §11.4.6): because LibreDrive
+returns raw sectors with **no bus layer**, the reader's job is just *issue the
+LibreDrive unlock + raw `READ(10)`s → emit content-encrypted Aligned Units* (the
+verified core then `content_decrypt`s them). No bus-strip step. Care item: align
+emitted units to the **clip's start LBA**, reassembling across 32 KB read
+boundaries (spec 12 §12.5) — a 16-sector read is not a whole number of 6144-byte
+units.
 
 ### 11.3.3 `AacsAuthReader` — the "correct" but hard route
 
@@ -245,18 +261,45 @@ unit-key parse/lookup, and `decrypt_aligned_unit` — end to end on real bus tra
 
 **Key correction to §11.1/§11.4.4 layering:** a `READ(10)` over LibreDrive on a
 **non-BEE** disc is **content-encrypted only — NOT bus-encrypted**. `content_decrypt`
-alone yields 32/32 (and the byte match above); no `read_data_key` is involved. So
-**bus encryption is a property of BEE discs, not of LibreDrive reads in general.**
-⇒ a `LibreDriveReader` for non-BEE discs is the thin path (capture → align →
-`decrypt_aligned_unit`) and is *proven now*; the **thick** bus-strip path (§11.4.3)
-is needed **only for BEE/UHD** and still awaits a real BEE-content capture (the
-Turbo disc currently hangs `makemkvcon` at "Reading Disc information", so no BEE
-content has transited the bus to test against).
+alone yields 32/32 (and the byte match above); no `read_data_key` is involved.
+§11.4.6 extends this to **BEE/UHD**.
+
+### 11.4.6 BEE/UHD content via LibreDrive is also raw — ✅ [Disc] (Turbo UHD)
+
+After the Turbo UHD disc (AACS 2.0, **BEE**) was cleaned so `makemkvcon` could read
+it, an `SG_IO` capture of its LibreDrive reads settles the bus-encryption question
+for the BEE case too. The disc's **Volume ID** appeared in the capture
+(`30FFCAF2…`), pinning the keydb unit key unambiguously (`1B33F91C…`). Then:
+
+- **Real UHD m2ts content decrypts with `content_decrypt` ALONE — 32/32 TS-sync,
+  BDAV video PID `0x1011`, monotonic arrival timestamps, continuity counters
+  30/30** (multiple Aligned Units at LBAs spread from 7.6 M to 20.9 M). Raw
+  (undecrypted) units score 0–1/32. **This is the first real AACS 2.0 / UHD content
+  Aligned Unit decrypted** (closes spec 05 §5.8 / spec 09's "last unproven step").
+- **No bus layer.** Turbo's **unencrypted** JAR/BD-J files come back as
+  **plaintext** over LibreDrive (captured bytes == MakeMKV's decrypted output,
+  `C⊕P` all-zero) — i.e. LibreDrive returns **raw disc sectors**: encrypted where
+  the disc is AACS-encrypted (m2ts), plaintext where it isn't (JARs).
+
+**Conclusion (supersedes §11.4.3/§11.4.4 for the LibreDrive path):** bus encryption
+is applied by the drive only on a *normal AACS-authenticated* transfer; **LibreDrive
+bypasses that and returns raw**, so `LibreDriveReader` is **thin** for *all* discs,
+BEE included — capture → align (to clip LBA, spec 12 §12.5) → `content_decrypt`.
+`bus_decrypt_unit` remains correct-by-reference but is only relevant to
+`AacsAuthReader` (spec 11 §11.3.3), which the project does not use. The methodology
+trap that produced the earlier wrong "BEE READ(10) is bus-encrypted" reading is in
+§11.4.4 / spec 12 §12.6.
 
 ## 11.5 BEE detection (which path to pick)
 
-`freeblue-core` must know whether a disc needs the bus-encrypted path **before**
-reading content, to choose a backend and to make `PlainUdfReader` refuse safely:
+**Scope (post-§11.4.6):** BEE detection is **not** needed to choose the
+*LibreDrive* path — LibreDrive returns raw for BEE and non-BEE alike, so the same
+thin capture→`content_decrypt` works either way. It still matters for one thing:
+making **`PlainUdfReader` refuse a BEE disc** (a plain read of a BEE disc *is*
+bus-encrypted, §11.1) instead of emitting garbage. So treat the below as the
+`PlainUdfReader` safety guard, not a LibreDrive router.
+
+`freeblue-core` can know a disc's BEE status **before** reading content:
 - **From the keydb** (cheap, available now): entries are tagged `…/BEE/…`
   (spec 06 §6.5). If the disc is in the keydb, its BEE status is known.
 - **From the disc** (`[?]`): the BEE flag should live in the Unit Key File / the

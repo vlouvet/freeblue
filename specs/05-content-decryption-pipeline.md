@@ -143,19 +143,28 @@ disc (§5.3.1):
   in-unit cleartext on the verified disc.
 - **[?]** Multi-CPS-unit key selection per clip (§5.2, depends on spec 04 §4.5) —
   the one genuinely open content-layer item (the test disc is single-unit).
-- **[?]** v2-specific content-layer change — current evidence says **none** (the
-  key hierarchy is byte-identical v1↔v2, spec 06 §6.5.2); the open byte-match is
-  decrypting a real v2 *Aligned Unit*, which is now gated on the **BEE bus layer**
-  (UHD discs are BEE — spec 11), not on the content cipher. Tracked in spec 12 §12.1.
+- ~~**[?]** v2 content byte-match~~ → ✅ **DONE** (§5.8): a real **UHD/AACS 2.0**
+  Aligned Unit (TURBO) decrypts to valid TS. The "v2 = v1 content cipher" thesis is
+  now proven on real v2 content, not just structure.
+- **[?]** Multi-CPS-unit key selection per clip (§5.2, spec 04 §4.5) remains the one
+  genuinely open content-layer item (both test discs are single-CPS-unit).
 
-### 5.8 Verification update — byte-identical to MakeMKV ✅ [Disc]
+### 5.8 Verification update — byte-identical to MakeMKV (v1) and real UHD (v2) ✅ [Disc]
 
-`decrypt_aligned_unit` is now confirmed the strongest way: real GoT disc content
-captured **live off the SCSI bus** (spec 11 §11.4.5) decrypts to output
-**byte-identical to MakeMKV's own decrypted m2ts** — `6112/6144` bytes exact. The
-only differing bytes are **byte 0 of each 192-byte M2TS packet**: the
-TP_extra_header copy/encryption indicator, which the disc sets (`0xD2`) and MakeMKV
-clears post-decrypt (`0x12 = 0xD2 & 0x3F`). The 6128-byte payload and the rest of
-each packet header are identical. This upgrades §5.3.1's self-judged "32/32 TS-sync"
-to an **independent-oracle byte-match**. Whether `freeblue` should also clear those
-2 CPI bits in its output is a deferred output-formatting decision (spec 12 §12.4).
+`decrypt_aligned_unit` is confirmed two independent ways on **live SCSI captures**:
+
+- **v1 / non-BEE (GoT), byte-vs-MakeMKV (spec 11 §11.4.5):** captured content
+  decrypts **byte-identical to MakeMKV's own decrypted m2ts** — `6112/6144` bytes
+  exact. The only differing bytes are **byte 0 of each 192-byte packet**: the
+  TP_extra_header copy/encryption indicator, which the disc sets (`0xD2`) and
+  MakeMKV clears post-decrypt (`0x12 = 0xD2 & 0x3F`). Payload + rest of each header
+  identical. This upgrades §5.3.1's self-judged "32/32" to an independent byte-match.
+- **v2 / UHD (TURBO, AACS 2.0, BEE), spec 11 §11.4.6:** real UHD m2ts decrypts to
+  **32/32 TS-sync with BDAV video PID `0x1011`, monotonic arrival timestamps, and
+  continuity counters 30/30** (unit key pinned by the captured Volume ID). **First
+  real AACS 2.0 content Aligned Unit decrypted** — closing the long-standing
+  "last unproven step." No bus-decrypt was needed (LibreDrive returns raw; spec 11
+  §11.4.6).
+
+Whether `freeblue` should also clear the 2 TP_extra_header CPI bits in its output
+is a deferred output-formatting decision (spec 12 §12.4).

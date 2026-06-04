@@ -6,34 +6,32 @@ turns an encrypted UHD/BD volume plus user-supplied key material into **plaintex
 M2TS**, so a remuxer like [`rippidydoodah`](../rippidydoodah/) can produce a
 playable `.mkv`.
 
-> **Status:** the **decrypt core + key hierarchy are implemented and byte-verified
-> against MakeMKV on real discs**, including end-to-end through a **live SCSI
-> capture** (decrypted output is byte-identical to MakeMKV). The library is real
-> code (7 crates, 35 passing tests), not scaffolding. The one piece **not** yet
-> live-verified is the **bus-encryption (BEE) layer** that UHD discs add — its
-> algorithm is implemented and KAT-tested but awaits a real BEE-content capture.
-> See [`specs/README.md`](specs/README.md) and the known-issues register in
-> [`specs/12-known-issues-and-deferred-work.md`](specs/12-known-issues-and-deferred-work.md).
+> **Status:** the **decrypt core + key hierarchy are implemented and verified on
+> real discs through a live SCSI capture** — including the **first real AACS 2.0 /
+> UHD content Aligned Unit decrypted** (TURBO: 32/32 TS-sync, video PID `0x1011`),
+> and v1 output **byte-identical to MakeMKV**. The library is real code (7 crates,
+> 35 passing tests). The remaining work is the **read path**: `freeblue` still
+> relies on MakeMKV to perform the LibreDrive SCSI read; doing that itself is the
+> open item. See [`specs/README.md`](specs/README.md) and the known-issues register
+> in [`specs/12-known-issues-and-deferred-work.md`](specs/12-known-issues-and-deferred-work.md).
 
-## The pipeline (every step proven byte-for-byte against a real disc)
+## The pipeline (every step proven on a real disc)
 
 ```
 processing key ──[MKB 0x04/0x05 + verify]──► Media Key   ✅ derived == keydb M        (GoT, BD)
 Media Key      ──[Kvu = AES-G(Km, IDv)]────► VUK         ✅ AES-G(M,I)==V              (GoT + UHD)
 VUK            ──[Kcu = AES-128D(Kvu, ·)]──► Unit Key     ✅ in Unit_Key_RO.inf         (UHD)
 Unit Key+seed  ──[AES-128E⊕seed, AES-CBC]──► plaintext    ✅ byte-identical to MakeMKV  (GoT, live SCSI capture)
-
-[BEE/UHD only] drive bus-encrypts the transfer; strip it first:
-bus-enc unit   ──[AES-128-CBC, read_data_key]──► content  🚧 algorithm impl + KAT'd; not live-verified
+                                                          ✅ 32/32, video PID 0x1011    (TURBO UHD/AACS 2.0, live)
 ```
 
 AACS 2.0 is, cryptographically, AACS v1 with SHA-256/P-256 and the player keys
-formerly hidden in SGX. That thesis is proven at the byte level: real GoT disc
-content captured live off the SCSI bus decrypts to output **byte-identical to
-MakeMKV** (6112/6144 bytes — the only delta is the per-packet TP_extra_header copy
-bit MakeMKV clears). The remaining gap is the **bus-encryption layer on BEE/UHD
-discs** (spec 11), implemented but not yet checked against a real BEE capture. See
-[`specs/`](specs/) for the cited derivation of every step.
+formerly hidden in SGX. That thesis is now proven on **real v2/UHD content**: a
+TURBO UHD Aligned Unit captured live off the bus decrypts to valid MPEG-TS (BDAV
+video PID `0x1011`); GoT v1 content decrypts byte-identical to MakeMKV. **No bus
+decryption is needed** — MakeMKV's **LibreDrive read returns raw disc sectors (no
+bus-encryption layer), even on a BEE/UHD disc**; bus encryption only afflicts plain
+OS reads (spec 11 §11.4.6). See [`specs/`](specs/) for the cited derivation.
 
 ## Layout
 

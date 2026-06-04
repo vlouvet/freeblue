@@ -50,14 +50,16 @@ To obtain and cite (not recall) — see [spec 02 §2.1](specs/02-key-hierarchy-a
 
 ## Status
 
-Specs 00–12 complete; the **decrypt core is byte-verified on real discs** and, for
-non-BEE content, **byte-identical to MakeMKV through a live SCSI capture** (spec 09
-§9.10.1, spec 11 §11.4.5). The Rust workspace is built out — `freeblue-crypto`,
-`-mkb`, `-content` (incl. `bus_decrypt_unit`), `-keys`, `-disc`, `-read`
-(`PlainUdfReader`), `-core` are implemented (35 passing tests); only `-cli` is a
-stub. The live-disc last mile is the **BEE/UHD read path**: the bus-encryption
-layer's algorithm is implemented + KAT'd but not yet byte-checked on a real BEE
-capture, and `LibreDriveReader` does no SCSI of its own yet. Open items live in
-[spec 12](specs/12-known-issues-and-deferred-work.md). See the
+Specs 00–12 complete; the **decrypt core is verified on real discs through live
+SCSI captures** — v1 (GoT) **byte-identical to MakeMKV** (spec 11 §11.4.5) and the
+**first real UHD/AACS 2.0 content** (TURBO) decrypted to valid TS, video PID
+`0x1011` (spec 11 §11.4.6). The Rust workspace is built out — `freeblue-crypto`,
+`-mkb`, `-content`, `-keys`, `-disc`, `-read` (`PlainUdfReader`), `-core` are
+implemented (35 passing tests); only `-cli` is a stub. **Key finding: MakeMKV's
+LibreDrive read returns raw disc sectors with no bus-encryption layer even on
+BEE/UHD**, so `content_decrypt` alone suffices and the BEE "blocker" is retired
+(spec 11 §11.4.6). The live-disc last mile is now just the **read path** —
+`freeblue` issuing the LibreDrive SCSI read itself instead of relying on MakeMKV.
+Open items live in [spec 12](specs/12-known-issues-and-deferred-work.md). See the
 [confidence model](specs/00-overview.md) (spec 00 §0.6) and the
 [roadmap](specs/README.md).

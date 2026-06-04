@@ -11,9 +11,9 @@
 
 | # | Item | State | Owner spec |
 |---|------|-------|-----------|
-| 12.1 | BEE/UHD bus-layer byte-match not done | 🔴 open | 11 §11.4 |
+| 12.1 | ~~BEE/UHD bus-layer byte-match~~ → **no bus layer on LibreDrive path; UHD content decrypted** | 🟢 resolved | 11 §11.4.6 |
 | 12.2 | `LibreDriveReader` does no SCSI of its own (depends on MakeMKV) | 🔴 open | 11 §11.3.2 |
-| 12.3 | `makemkvcon` hangs on the Turbo UHD disc | 🔴 blocker | — |
+| 12.3 | ~~`makemkvcon` hangs on the Turbo UHD disc~~ → fixed by cleaning the disc | 🟢 resolved | — |
 | 12.4 | TP_extra_header copy-bit not cleared in output | 🟡 deferred | 05 §5.8 |
 | 12.5 | Aligned-Unit alignment is per-clip-LBA, not absolute | 🐛 gotcha | 05 §5.1 |
 | 12.6 | `ts_sync_score` is a weak verification oracle | 🟢 lesson | 11 §11.4.4 |
@@ -25,35 +25,25 @@
 
 ---
 
-## 12.1 🔴 BEE/UHD bus-layer byte-match not done `[?]`
+## 12.1 🟢 BEE/UHD "bus layer" — RESOLVED: there is none on the LibreDrive path `[Disc]`
 
-`freeblue-content::bus_decrypt_unit` (per-2048-byte-sector AES-128-CBC over
-`[16..2048)`, key `read_data_key`, IV `CONTENT_IV`) is a faithful read of the
-`libaacs` reference and is **KAT-tested** (synthetic round-trip + key-sensitivity),
-so it is tagged `[E]`. It has **never been byte-checked against a real
-bus-encrypted Aligned Unit** — i.e. no `[Disc]` evidence. UHD discs are BEE
-(spec 04 §4.3.2), so this is the gating gap for live UHD ripping.
+**Original concern:** UHD discs are BEE, so we assumed live UHD ripping needed a
+bus-decrypt step (`bus_decrypt_unit`) before `content_decrypt`, and that step was
+unverified on real content.
 
-**Why not done:** verifying it needs *one* real bus-encrypted unit **and its
-session `read_data_key`, captured together** (the bus key is session-bound). The
-only BEE disc on hand (Turbo UHD) can't be read end-to-end by MakeMKV (§12.3), so
-no BEE content has transited the bus to test against.
+**Resolution (2026-06-04, spec 11 §11.4.6):** the assumption was wrong for the path
+we use. After cleaning the Turbo UHD disc (§12.3), a LibreDrive capture showed its
+real m2ts content decrypts with **`content_decrypt` alone — 32/32 TS-sync, BDAV
+video PID `0x1011`, monotonic ATS, continuity 30/30** (unit key pinned by the
+captured Volume ID `30FFCAF2…`). **LibreDrive returns raw disc sectors; bus
+encryption is applied only on a *normal AACS-authenticated* read, which LibreDrive
+bypasses.** This is the **first real AACS 2.0 / UHD Aligned Unit decrypted**.
 
-**Open sub-questions:**
-- Is `read_data_key` recoverable from captured **bus** traffic (scraped from drive
-  RAM via `READ BUFFER 0x3C/0x77`), or is it **computed inside MakeMKV's process**
-  from the AKE and never on the bus? If the latter, `LibreDriveReader` must
-  replicate the derivation (or scrape MakeMKV's RAM), not just window-search the
-  capture. Evidence is inconclusive (the one window-search "hit" was a §12.6
-  false positive on metadata).
-- Is `read_data_key` **ephemeral** (per-session AKE nonces) or **stable per disc**?
-  Unresolved — the apparent cross-session stability seen earlier was on spurious
-  (metadata) data and must not be trusted.
-
-**Next step:** get a real BEE-content capture (resolve §12.3, or use any UHD/BEE
-disc MakeMKV *can* open), then run the **strong** oracle (§12.6) — bus-decrypt →
-content-decrypt → byte-match against MakeMKV's decrypted output — with the unit key
-pinned by the disc's Volume ID, not guessed.
+So there is **no bus-layer byte-match owed** for the LibreDrive path. The open
+sub-questions about scraping/deriving a `read_data_key` are moot here.
+`bus_decrypt_unit` stays in the tree (correct-by-reference, KAT'd) but is exercised
+only by the unused `AacsAuthReader` (spec 11 §11.3.3); if that path is never built,
+consider it dead code to prune.
 
 ## 12.2 🔴 `LibreDriveReader` does no SCSI of its own `[?]`
 
@@ -72,22 +62,15 @@ unrevoked P-256 host cert (spec 06 §6.6) and stays impractical.
 proven core. So freeblue decrypts any **non-BEE** content given the units; the open
 work is *acquiring* BEE/UHD units without MakeMKV.
 
-## 12.3 🔴 `makemkvcon` hangs reading the Turbo UHD disc
+## 12.3 🟢 `makemkvcon` hung on the Turbo UHD disc — RESOLVED (disc was dirty)
 
-On the Turbo UHD disc (BEE, `/dev/sr0`, LG WH16NS60), `makemkvcon ... backup`/`info`
-**hangs at "Reading Disc information"** — it loops re-reading low-LBA structure
-sectors (LBA 0/512/1945/3520, single 2048-byte reads) and never advances to the
-high-LBA `STREAM/*.m2ts` content. Multiple runs (110 s … 16 min) never produced a
-single high-entropy content `READ(10)`. Behavior is run-to-run variable (an early
-run got ~24 structure reads; later runs got none), suggesting **drive/disc
-flakiness**, not a `freeblue` issue. An `eject -t` cycle made it worse (the cold
-BEE disc then refused plain reads — expected: the drive gates content reads behind
-AACS auth, which only MakeMKV's open performs).
-
-**This blocks §12.1** (no BEE content to test against). **Things to try:** clean /
-reseat the disc; the other LibreDrive drive (Lite-On iHBS212, `/dev/sr1`); a
-**different UHD/BEE disc** MakeMKV can open; or a much longer single run from a cold
-boot. Capture recipe and disc/drive map: spec 11 §11.4 + the project memory.
+`makemkvcon` had been **hanging at "Reading Disc information"** on the Turbo UHD
+disc — looping on low-LBA structure sectors, never reaching content; behaviour was
+run-to-run variable. **Root cause: a dirty disc.** After the user cleaned and
+re-inserted it, `makemkvcon` read straight through to "Decrypting" and the capture
+yielded 64 high-entropy content reads (which closed §12.1). Lesson: a flaky
+"hangs reading disc info" on optical media is often physical (clean/reseat first)
+before suspecting tooling.
 
 ## 12.4 🟡 TP_extra_header copy/encryption bit not cleared in output `[Disc]`
 
@@ -173,18 +156,27 @@ For anyone re-running the spec 11 capture:
   passthrough). Exec with `-e HOME=/home/arm` so it finds the registered key.
 - The `SG_IO` shim must **entropy-gate** large `READ(10)`s — otherwise the capture
   is dominated by low-entropy metadata and you'll trip §12.6.
-- Capture `0xA4 REPORT KEY` / `0xAD READ DISC STRUCTURE` too, not just `0x3C` —
-  bus-key material for BEE may transit there, not only the `0x3C` handshake.
+- Capture `0xA4 REPORT KEY` / `0xAD READ DISC STRUCTURE` too, not just `0x3C` (cheap
+  insurance, though the LibreDrive path turned out not to need bus-key material).
+- A "hangs at Reading Disc information" stall is often a **dirty disc** — clean and
+  reseat before blaming tooling (§12.3).
 - Never commit captures, decrypted output, or the keydb (Rule 4); clean `/tmp`.
 
 ---
 
 ## 12.12 Priority for closing
 
-1. **§12.3 → §12.1** — get any BEE/UHD content MakeMKV can read, then byte-match
-   `bus_decrypt_unit`. This is the one gap between "non-BEE proven" and "UHD proven."
-2. **§12.2** — RE the LibreDrive SCSI sequence so freeblue reads BEE discs without
-   MakeMKV (the standalone-ripper milestone).
-3. **§12.4 / §12.10** — output-bit decision + CLI (small, ship-blocking polish).
-4. **§12.7–§12.9** — the non-keydb / device-key / multi-unit paths (needed only
-   outside the ~20k keydb-covered titles).
+With §12.1 (UHD content decrypted) and §12.3 (disc hang) resolved, the decrypt
+half is **done** (non-BEE *and* UHD, byte/structurally verified). Remaining:
+
+1. **§12.2** — RE the LibreDrive unlock SCSI sequence so `freeblue` reads discs
+   without MakeMKV (the standalone-ripper milestone, and the only thing between
+   "decrypts captured units" and "rips a disc itself"). Now known to be a **thin**
+   reader (no bus-strip) — capture → align → `content_decrypt`.
+2. **§12.5 / §12.10** — robust clip-LBA Aligned-Unit alignment in the reader, and
+   the `freeblue-cli` binary.
+3. **§12.4** — the TP_extra_header copy-bit output decision (cosmetic).
+4. **§12.7–§12.9** — non-keydb / device-key / multi-unit paths (needed only outside
+   the ~20k keydb-covered titles).
+5. **§12.1 cleanup** — decide whether to prune `bus_decrypt_unit`/`AacsAuthReader`
+   if the AACS-auth path is never pursued.

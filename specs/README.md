@@ -24,22 +24,25 @@ processing key ──[MKB 0x04/0x05 + verify 0x81]──► Media Key   ✅ deri
 Media Key      ──[Kvu = AES-G(Km, IDv)]─────────► VUK         ✅ AES-G(M,I)==V              (GoT + UHD)
 VUK            ──[Kcu = AES-128D(Kvu, ·)]───────► Unit Key     ✅ in Unit_Key_RO.inf         (UHD)
 Unit Key+seed  ──[AES-128E⊕seed, AES-128-CBC]───► plaintext    ✅ byte-identical to MakeMKV  (GoT, live SCSI capture)
+                                                                ✅ 32/32, video PID 0x1011    (TURBO UHD/AACS 2.0, live)
 ```
 
-The content step is now verified the strongest way possible: real GoT disc content
-captured **live off the SCSI bus** (an `SG_IO` shim under `makemkvcon`) decrypts,
-via the actual `freeblue-content` code, to output **byte-identical to MakeMKV's own
-decrypted m2ts** (6112/6144 bytes; the only delta is the per-packet TP_extra_header
-copy bit MakeMKV clears) — spec 11 §11.4.5. This `[Disc]`-validates the capture
-path, Aligned-Unit alignment, keydb unit-key lookup, and the decrypt core together,
-against an independent oracle.
+The content step is verified two ways on **live SCSI captures**: (1) GoT (v1) decrypts
+**byte-identical to MakeMKV's own decrypted m2ts** (6112/6144; the only delta is the
+per-packet TP_extra_header copy bit MakeMKV clears) — spec 11 §11.4.5; and (2) a
+real **UHD/AACS 2.0** disc (TURBO, BEE) decrypts to **32/32 TS-sync with BDAV video
+PID `0x1011`** — spec 11 §11.4.6, the **first real AACS 2.0 content Aligned Unit
+decrypted**. Together these `[Disc]`-validate the capture path, Aligned-Unit
+alignment, keydb unit-key lookup, and the decrypt core against independent oracles.
 
 **Production code exists and passes** — 7 implemented crates, 35 deterministic KATs
-+ 4 fixture-gated real-disc tests (spec 08, spec 09). The **one** step not yet
-live-verified is the **bus-encryption (BEE) layer** UHD discs add: its algorithm is
-implemented and KAT-tested (`bus_decrypt_unit`) but has not been byte-checked
-against a real BEE capture, because `makemkvcon` currently hangs reading the only
-BEE disc on hand. Open items are tracked in **spec 12**.
++ 4 fixture-gated real-disc tests (spec 08, spec 09). **The decrypt half is done
+(v1 and UHD).** A key correction landed: **MakeMKV's LibreDrive read returns raw
+disc sectors with no bus-encryption layer, even on BEE/UHD** (spec 11 §11.4.6) — so
+the long-feared "BEE bus layer" is a non-issue for the path we use; it only blocks
+*plain* OS reads. The remaining work is the **read path** — `freeblue` doing the
+LibreDrive SCSI read itself instead of relying on MakeMKV (spec 11 §11.3.2, spec 12
+§12.2). Open items are tracked in **spec 12**.
 
 ## What this is and is not
 
@@ -186,11 +189,11 @@ vectors proven on real discs (spec 09 §9.10.1, spec 11 §11.4.5):
 
 **Phase 2 — Close the v2-only gaps.**
 - v2 MKB types (`0x86` verify etc.) in the parser (spec 03 §3.3.1) — additive.
-- **Non-BEE content byte-match: DONE** — GoT disc content captured live decrypts
-  byte-identical to MakeMKV (spec 11 §11.4.5). The remaining content gap is the
-  **BEE/UHD bus-layer byte-match**: capture one real bus-encrypted UHD Aligned Unit
-  + its session `read_data_key` and confirm `bus_decrypt_unit` (spec 12 §12.1).
-  Blocked: `makemkvcon` hangs on the only BEE disc on hand.
+- **Content byte-match: DONE for both v1 and UHD.** GoT (v1) decrypts byte-identical
+  to MakeMKV (spec 11 §11.4.5); TURBO (UHD/AACS 2.0, BEE) decrypts to 32/32 with
+  video PID `0x1011` (spec 11 §11.4.6) — the first real v2 content unit. **No bus
+  layer was needed** (LibreDrive returns raw; the BEE concern was retired, spec 12
+  §12.1).
 - **Key/Volume-ID acquisition strategy** (the real fork):
   - *Disc in the community keydb* → `V`(VUK)+`U`(Unit Key)+`I`(Volume ID) are
     supplied directly; **no drive auth, no device keys needed** — the 80% path,
@@ -198,11 +201,12 @@ vectors proven on real discs (spec 09 §9.10.1, spec 11 §11.4.5):
   - *Disc not in keydb* → need the **v2 device keys** (user-sourced) + the
     **Volume ID**, which requires either a v2 P-256 host cert for AACS drive↔host
     auth or a LibreDrive-style raw read (spec 04 §4.3). Hard path.
-- **Bus encryption (BEE)** — ⚠️ verified blocker (spec 04 §4.3.2). On BEE discs
-  (most 2013+ BDs *and* the UHD disc tested) a plain read returns bus-encrypted
-  data the content cipher can't remove — even with correct keys. Needs a
-  non-bus-encrypted read (LibreDrive or AACS-auth bus key). This is the gating
-  dependency for live UHD ripping; the decrypt core is unaffected.
+- **Bus encryption (BEE)** — ✅ retired as a blocker (spec 04 §4.3.2, spec 11
+  §11.4.6). A *plain* read of a BEE disc returns bus-encrypted data, but **MakeMKV's
+  LibreDrive read returns raw sectors with no bus layer** — proven on the TURBO UHD
+  disc, which decrypts with `content_decrypt` alone. So the gating dependency for
+  live UHD ripping is just **using the LibreDrive read path**, not removing a bus
+  key. `bus_decrypt_unit` is retained only for a possible AACS-auth reader.
 
 **Phase 3 — `rdd` integration** (touches rdd spec 02 *disc-access-and-decryption*
 and spec 11 *arm-integration*):

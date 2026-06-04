@@ -33,7 +33,7 @@ crates/
   freeblue-crypto    AES-128, AES-G, AES-G3            (✅ implemented + KATs)
   freeblue-mkb       MKB parse + media-key derivation  (✅ implemented + KATs)
   freeblue-content   Aligned-Unit block-key + AES-CBC  (✅ implemented + KATs)
-  freeblue-keys      KEYDB.cfg parser                  (stub — TDD)
+  freeblue-keys      KEYDB.cfg parser                  (✅ implemented + tests)
   freeblue-disc      /AACS/ structures + raw m2ts read (stub — TDD)
   freeblue-core      orchestration → plaintext M2TS    (partial)
   freeblue-cli       `freeblue` binary                 (stub)

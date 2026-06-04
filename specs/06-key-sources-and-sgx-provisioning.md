@@ -176,8 +176,9 @@ that already captured the Volume ID (spec 04 §4.6).
 ## 6.7 Open questions
 
 - ~~Exact `KEYDB.cfg` grammar~~ → **[E]** resolved from `res/keydb_eng.zip`
-  (§6.5). The **v2 device-key-set** file layout is still **[?]** until a v2 set
-  is in hand (§6.5).
+  (§6.5) **and implemented** in `freeblue-keys` (spec 08 §8.3) — the parser's
+  tests pass against the full real 182k-entry keydb. The **v2 device-key-set**
+  file layout is still **[?]** until a v2 set is in hand (§6.5).
 - **[?]** Whether a usable **v2** host certificate is part of the user-sourced
   material (§6.6, spec 04 §4.3). (The v1 keydb's host cert does **not** work for
   UHD — it is 160-bit, not P-256.)

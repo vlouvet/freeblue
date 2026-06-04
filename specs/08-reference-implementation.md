@@ -49,8 +49,9 @@ freeblue/                     (standalone workspace; scaffolded 2026-06-04)
                           Implemented + KATs pass. Depends on -crypto.
     freeblue-content/  ✅ aligned-unit block-key + AES-CBC → spec 05 §5.3.
                           Implemented + KATs pass. Depends on -crypto.
-    freeblue-keys/     🚧 KEYDB.cfg + device-key-set parse, zeroized → spec 06 §6.5.
-                          Stub; first TDD target.
+    freeblue-keys/     ✅ KEYDB.cfg parser (disc D/M/I/V/U + DK/PK/HC), zeroized
+                          → spec 06 §6.5. Implemented; tests pass incl. against the
+                          real 182k-entry keydb. (device-key-set file: TODO.)
     freeblue-disc/     🚧 on-disc structures (MKB/UnitKeyFile/certs) → spec 04. Stub.
     freeblue-read/     📋 the READ-PATH layer (NEW — see §8.5.1): non-bus-encrypted
                           stream access for BEE/UHD discs (spec 04 §4.3.2). Not yet

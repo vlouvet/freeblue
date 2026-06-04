@@ -1,13 +1,14 @@
 # 08 — Reference Implementation
 
-> **Status:** 🚧 Partial — the clean-room implementation. **Built out
-> (2026-06-04):** standalone Rust workspace, **35 passing tests**.
-> `freeblue-crypto`/`-mkb`/`-content`/`-keys`/`-disc`/`-read`/`-core` are all
-> implemented; only `freeblue-cli` is still a stub. The decrypt path is
-> `[Disc]`-verified end-to-end, byte-identical to MakeMKV via a live SCSI capture
-> (spec 11 §11.4.5). What's *not* done is the **BEE/UHD read backend**
-> (`LibreDriveReader`/`AacsAuthReader` stubs) — see spec 11 + spec 12. Decisions
-> inherit `rippidydoodah`'s stack so the two projects compose.
+> **Status:** ✅ Built out (2026-06-04) — standalone Rust workspace, **36 passing
+> tests**. All eight crates are implemented, including `freeblue-read`'s
+> `LibreDriveReader` (SG_IO LibreDrive unlock, no MakeMKV) and `freeblue-cli`
+> (`unlock`/`decrypt`/`decrypt-disc`). **End-to-end standalone rip verified**: a
+> cold TURBO UHD disc → `freeblue unlock` → mount → `freeblue decrypt` = 100%
+> TS-sync plaintext, MakeMKV nowhere (spec 11 §11.4.6–7). v1 output is
+> byte-identical to MakeMKV (spec 11 §11.4.5). Decisions inherit `rippidydoodah`'s
+> stack so the two projects compose. Open polish in spec 12 (auto unit-key,
+> per-drive unlock tables, `verify`).
 
 ## 8.1 Goals for the implementation
 
@@ -66,8 +67,9 @@ freeblue/                     (standalone workspace; scaffolded 2026-06-04)
                           decrypt_units + decrypt_clip over a freeblue-read::
                           UnitReader → §0.4. Implemented + tests. (BEE read routing
                           pending the read backend.)
-    freeblue-cli/      🚧 `freeblue decrypt`, `freeblue verify`. Stub (only crate
-                          not yet built out).
+    freeblue-cli/      ✅ `freeblue unlock` (LibreDrive raw mode), `decrypt`
+                          (PlainUdfReader→plaintext), `decrypt-disc` (SG_IO extent).
+                          Standalone rip verified. `verify` (§9.3) + auto unit-key TODO.
 ```
 
 Mapping is 1:1 with the spec series on purpose: a failing test in `-mkb` points

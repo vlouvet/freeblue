@@ -80,6 +80,7 @@ dependencies = [
  "freeblue-keys",
  "freeblue-mkb",
  "hex",
+ "thiserror",
 ]
 
 [[package]]

@@ -110,9 +110,10 @@ device-number + 64-byte P-256 public key + 64-byte signature`, and the matching
 **[?]** and gates live-drive use. Field widths are **[Arch]**-level (a 2014 draft
 marked "proposal"/"TOSHIBA TO REVISE"); confirm against a real cert + `libaacs`.
 
-### 4.3.2 Bus Encryption (BEE) — ✅ [Disc] — the raw-read blocker
+### 4.3.2 Bus Encryption (BEE) — ✅ [Disc] — blocks *plain* reads, not LibreDrive
 
-**The most important practical finding for live-disc ripping.** Many discs set
+**An important practical finding for live-disc ripping** (with a correction below —
+it blocks plain reads, but **not** the LibreDrive path `freeblue` uses). Many discs set
 **Bus Encryption Enabled (BEE)**: the drive, after AACS drive↔host auth, encrypts
 the content sectors it returns to the host under a per-session **bus key**, so the
 data crossing the drive→host bus is protected *on top of* AACS content encryption.
@@ -120,29 +121,31 @@ data crossing the drive→host bus is protected *on top of* AACS content encrypt
 key → it **fails on BEE discs** (rdd spec 02 §2.4). MakeMKV/LibreDrive bypass it
 with raw drive access.
 
-**Verified [Disc]** on real discs (the community keydb tags BEE discs `…/BEE/…`):
+**Verified [Disc]** — the column below is **plain UDF/`dd`** reads (the keydb tags
+BEE discs `…/BEE/…`):
 
-| Disc | BEE? | Plain UDF read + standard content decrypt (spec 05) |
-|---|---|---|
-| GoT: Conquest & Rebellion (BD, MKBv63) | no | ✅ 32/32 TS-sync — works |
-| Turbo (BD, MKBv36) | **yes** | ❌ random (~1/32) — fails with *every* unit key |
-| The Warning (UHD, MKBv82) | **yes** | content untested (structure-only dump) |
+| Disc | BEE? | **Plain** UDF read + content decrypt | **LibreDrive** read + content decrypt |
+|---|---|---|---|
+| GoT: Conquest & Rebellion (BD, MKBv63) | no | ✅ 32/32 | ✅ byte-identical to MakeMKV (spec 11 §11.4.5) |
+| **TURBO (UHD, AACS 2.0, BEE)** | **yes** | ❌ ~1/32 (bus-encrypted) | ✅ **32/32, video PID 0x1011** (spec 11 §11.4.6) |
+| The Warning (UHD, MKBv82) | **yes** | — | content untested (structure-only dump) |
 
-For Turbo, the **key hierarchy still verifies** (`AES-G(Km, IDv) == Kvu` byte-
-exact) and all 7 CPS-unit keys were tried — none decrypt the raw stream. So BEE
-adds a layer the keys+content-cipher pipeline does not remove.
+On a **plain** read, a BEE disc's content is bus-encrypted and fails (key hierarchy
+still verifies — `AES-G(Km,IDv)==Kvu` byte-exact — but the bus layer isn't removed).
 
-**Critical implication for the UHD goal:** the UHD disc here is **also BEE**, so
-this is *not* a v1 curiosity — it is on the critical path for ripping UHD. A plain
-OS/UDF read is **insufficient** for any BEE disc. `freeblue` (the decrypt half)
-must be paired with a read path that returns *non-bus-encrypted* AACS content,
-via one of:
-1. **LibreDrive-style raw reads** (what MakeMKV does) — a flashed/compatible drive
-   read in a mode that omits bus encryption. The pragmatic route; a drive-firmware
-   dependency, not crypto.
-2. **AACS drive↔host auth with a valid (unrevoked) host cert** (§4.3.1) →
-   negotiate the bus key → un-bus-encrypt the transfer yourself. Needs a usable
-   host cert/key (spec 06 §6.6, the hard `[?]`).
+**Correction (2026-06-04, spec 11 §11.4.6) — the practical implication:** bus
+encryption is applied by the drive **only on a normal AACS-authenticated read**.
+**LibreDrive bypasses that and returns RAW disc sectors with no bus layer**, so
+the same BEE/UHD disc that fails a plain read decrypts with `content_decrypt`
+**alone** over LibreDrive — proven on TURBO UHD (the first real AACS 2.0 content
+decrypted). So for the path `freeblue` actually uses, **BEE is a non-issue**; it
+only blocks the plain-read/`AacsAuthReader` route. `freeblue` (the decrypt half)
+pairs with a read path that returns content-encrypted (non-bus) sectors, via:
+1. **LibreDrive raw reads** (what MakeMKV does) — proven to need **no** bus-strip;
+   `content_decrypt` directly. The pragmatic route; a drive-firmware dependency.
+2. **AACS drive↔host auth with an unrevoked host cert** (§4.3.1) → negotiate the
+   bus key → un-bus-encrypt yourself. Needs a usable host cert (spec 06 §6.6, hard
+   `[?]`); only this route needs `bus_decrypt_unit`.
 
 Either way, **bus-key handling is a read-path concern outside the pure-crypto
 core** (specs 02–05 remain correct and `[Disc]`-verified). This is tracked as a

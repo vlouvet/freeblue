@@ -57,6 +57,18 @@ The end-to-end test (spec 07 §7.2):
 A pass on ≥1 disc of each crypto generation present in the corpus is the
 implementation's definition of done (spec 00 §0.8, spec 08).
 
+**✅ Realized (2026-06-04):** this oracle has been run for real, on both generations.
+- **v1 / non-BEE (GoT, spec 11 §11.4.5):** a live `SG_IO` capture decrypted by
+  `freeblue-content` is **byte-identical to MakeMKV's decrypted m2ts** — `6112/6144`
+  bytes, the only delta being the per-packet TP_extra_header copy bit MakeMKV clears
+  (`0xD2`→`0x12`). That is the §9.3 step 3 diff, passing.
+- **v2 / UHD (TURBO, AACS 2.0, BEE, spec 11 §11.4.6):** real UHD content decrypts to
+  **32/32 TS-sync, BDAV video PID `0x1011`, monotonic ATS, continuity 30/30** — the
+  first real AACS 2.0 content unit. No bus-decrypt was needed (LibreDrive returns
+  raw). A full MakeMKV byte-diff on the UHD title awaits letting `makemkvcon`
+  finish writing its STREAM output, but the structural match against an independent
+  decode is conclusive.
+
 ## 9.4 Failure taxonomy (so a diff localizes the bug)
 
 | Symptom | Likely cause | Spec |

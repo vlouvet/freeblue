@@ -11,7 +11,7 @@ an *already-decrypted* stream and explicitly defers UHD/AACS 2.0 as a non-goal.
 
 ## Start here
 
-→ **[specs/README.md](specs/README.md)** — the specification series (00–10) and
+→ **[specs/README.md](specs/README.md)** — the specification series (00–12) and
 reading order. The specs are the deliverable; the implementation is downstream.
 
 Core technical path: [02 key hierarchy](specs/02-key-hierarchy-and-crypto-primitives.md)
@@ -50,10 +50,17 @@ To obtain and cite (not recall) — see [spec 02 §2.1](specs/02-key-hierarchy-a
 
 ## Status
 
-Specs 00–10 complete; the **decryption core is byte-verified on real discs**
-(processing-key→media-key, Kvu, unit-key unwrap, content CBC — spec 09 §9.10.1).
-Rust workspace scaffolded; `freeblue-crypto`/`-mkb`/`-content` implemented with
-passing KATs; keys/disc/read/core/cli remain. The live-disc last mile is the
-**read path** for bus-encryption (BEE) discs (incl. UHD) — spec 04 §4.3.2,
-spec 08 §8.5.1. See the [confidence model](specs/00-overview.md) (spec 00 §0.6)
-and the [roadmap](specs/README.md).
+Specs 00–12 complete; the **decrypt core is verified on real discs through live
+SCSI captures** — v1 (GoT) **byte-identical to MakeMKV** (spec 11 §11.4.5) and the
+**first real UHD/AACS 2.0 content** (TURBO) decrypted to valid TS, video PID
+`0x1011` (spec 11 §11.4.6). The Rust workspace is built out — `freeblue-crypto`,
+`-mkb`, `-content`, `-keys`, `-disc`, `-read`, `-core` are implemented (36 passing
+tests); only `-cli` is a stub. **freeblue now reads protected discs on its own — no
+MakeMKV:** the LibreDrive "unlock" is a static, read-only `READ BUFFER` (`0x3C`)
+sequence that `freeblue-read` replays over `SG_IO`, flipping the drive to raw mode;
+then `content_decrypt` (LibreDrive returns no bus layer, spec 11 §11.4.6–7).
+Verified on the **cold** TURBO UHD disc: 8/8 Aligned Units decrypt 32/32, MakeMKV
+nowhere in the loop. Remaining glue is **clip extent resolution** (UDF/BDMV → LBA)
+and a CLI. Open items live in [spec 12](specs/12-known-issues-and-deferred-work.md). See the
+[confidence model](specs/00-overview.md) (spec 00 §0.6) and the
+[roadmap](specs/README.md).

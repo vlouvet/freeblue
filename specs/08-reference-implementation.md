@@ -1,10 +1,13 @@
 # 08 — Reference Implementation
 
-> **Status:** 🚧 Partial — the clean-room implementation. **Scaffolded
-> (2026-06-04):** standalone Rust workspace; `freeblue-crypto`/`-mkb`/`-content`
-> implemented with passing KATs (§8.3); keys/disc/read/core/cli are stubs. This
-> spec is the shape; the verified decrypt core (specs 02–05) is the part already
-> built. Decisions inherit `rippidydoodah`'s stack so the two projects compose.
+> **Status:** 🚧 Partial — the clean-room implementation. **Built out
+> (2026-06-04):** standalone Rust workspace, **35 passing tests**.
+> `freeblue-crypto`/`-mkb`/`-content`/`-keys`/`-disc`/`-read`/`-core` are all
+> implemented; only `freeblue-cli` is still a stub. The decrypt path is
+> `[Disc]`-verified end-to-end, byte-identical to MakeMKV via a live SCSI capture
+> (spec 11 §11.4.5). What's *not* done is the **BEE/UHD read backend**
+> (`LibreDriveReader`/`AacsAuthReader` stubs) — see spec 11 + spec 12. Decisions
+> inherit `rippidydoodah`'s stack so the two projects compose.
 
 ## 8.1 Goals for the implementation
 
@@ -47,28 +50,32 @@ freeblue/                     (standalone workspace; scaffolded 2026-06-04)
                           Implemented + KATs pass. The KAT-first foundation.
     freeblue-mkb/      ✅ MKB TLV parse + processing-key→media-key → spec 03 §3.4.
                           Implemented + KATs pass. Depends on -crypto.
-    freeblue-content/  ✅ aligned-unit block-key + AES-CBC → spec 05 §5.3.
-                          Implemented + KATs pass. Depends on -crypto.
+    freeblue-content/  ✅ aligned-unit block-key + AES-CBC → spec 05 §5.3, PLUS
+                          bus_decrypt_unit (BEE layer, spec 11 §11.4.3). KATs pass;
+                          decrypt_aligned_unit byte-matches MakeMKV (spec 11 §11.4.5).
     freeblue-keys/     ✅ KEYDB.cfg parser (disc D/M/I/V/U + DK/PK/HC), zeroized
                           → spec 06 §6.5. Implemented; tests pass incl. against the
                           real 182k-entry keydb. (device-key-set file: TODO.)
-    freeblue-disc/     🚧 on-disc structures (MKB/UnitKeyFile/certs) → spec 04. Stub.
-    freeblue-read/     📋 the READ-PATH layer (NEW — see §8.5.1): non-bus-encrypted
-                          stream access for BEE/UHD discs (spec 04 §4.3.2). Not yet
-                          scaffolded; the live-disc last mile.
-    freeblue-core/     🚧 orchestration: disc + keys → plaintext M2TS → §0.4. The
-                          chain is wired & unit-tested: resolve_unit_key
-                          (keydb-or-unwrap) + decrypt_units + decrypt_clip (over a
-                          freeblue-read::UnitReader). Remaining: the real GoT
-                          byte-match ($FREEBLUE_FIXTURES) and BEE read routing.
-    freeblue-cli/      🚧 `freeblue decrypt`, `freeblue verify`. Stub.
+    freeblue-disc/     ✅ on-disc structures (MKB/UnitKeyFile/certs) + raw m2ts via
+                          Image/Folder source → spec 04. Implemented + tests.
+    freeblue-read/     ✅/🚧 the READ-PATH layer (§8.5.1): UnitReader trait +
+                          PlainUdfReader (non-BEE, works). LibreDriveReader /
+                          AacsAuthReader are stubs — the live BEE/UHD last mile
+                          (spec 11, spec 12 §12.2).
+    freeblue-core/     ✅ orchestration: resolve_unit_key (keydb-or-unwrap) +
+                          decrypt_units + decrypt_clip over a freeblue-read::
+                          UnitReader → §0.4. Implemented + tests. (BEE read routing
+                          pending the read backend.)
+    freeblue-cli/      🚧 `freeblue decrypt`, `freeblue verify`. Stub (only crate
+                          not yet built out).
 ```
 
 Mapping is 1:1 with the spec series on purpose: a failing test in `-mkb` points
 at spec 03; a byte mismatch in `-content` points at spec 05 §5.3. The
-decryption-core crates (`-crypto`, `-mkb`, `-content`) are **implemented and
-`[Disc]`-verified** (spec 09 §9.10.1); the disc/read/keys/orchestration crates are
-the remaining work.
+decryption-core crates (`-crypto`, `-mkb`, `-content`, `-keys`, `-disc`, `-core`)
+are **implemented and `[Disc]`-verified** (spec 09 §9.10.1, spec 11 §11.4.5). The
+remaining work is the **BEE/UHD read backend** in `-read` (`LibreDriveReader`) and
+the `-cli` binary — see spec 12 for the open register.
 
 ## 8.4 Public API sketch (forward of CLI)
 

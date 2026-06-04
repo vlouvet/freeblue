@@ -123,6 +123,7 @@ dependencies = [
 name = "freeblue-read"
 version = "0.0.0"
 dependencies = [
+ "libc",
  "thiserror",
 ]
 

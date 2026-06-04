@@ -9,6 +9,14 @@
 use std::io::Read;
 use std::path::PathBuf;
 
+// LibreDrive raw-read path (spec 11 §11.4.6–7) — Linux/SG_IO only.
+#[cfg(target_os = "linux")]
+mod libredrive;
+#[cfg(target_os = "linux")]
+mod libredrive_unlock;
+#[cfg(target_os = "linux")]
+mod scsi;
+
 /// AACS Aligned-Unit size (spec 05 §5.1).
 pub const ALIGNED_UNIT_LEN: usize = 6144;
 /// One on-disc Aligned Unit.
@@ -43,6 +51,13 @@ pub enum ReadError {
     Unimplemented(&'static str),
     #[error("clip has no file path for a file-based reader")]
     NoPath,
+    /// A drive backend needs `ClipId::disc_extent` (start_lba, num_units).
+    #[error("clip has no disc extent for a drive-based reader")]
+    NoExtent,
+    /// The drive did not answer the LibreDrive handshake — raw reads would
+    /// return bus-encrypted garbage, so we refuse (spec 11 §11.4.6).
+    #[error("drive is not LibreDrive-capable; cannot get raw (non-bus) reads")]
+    NotLibreDrive,
 }
 
 /// Yields AACS-content-encrypted (non-bus) Aligned Units for a clip.
@@ -107,8 +122,10 @@ impl Iterator for FileUnitIter {
 // LibreDriveReader / AacsAuthReader — BEE/UHD backends (spec 11 §11.3.2-3)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Reads non-bus content via MakeMKV's LibreDrive vendor-SCSI path (spec 11
-/// §11.3.2). The primary work item; needs the RE'd command set (spec 11 §11.4).
+/// Reads **raw** (content-encrypted, non-bus) content from a LibreDrive-capable
+/// drive **without MakeMKV** (spec 11 §11.4.6–7): replay the read-only LibreDrive
+/// unlock sequence over `SG_IO`, then `READ(10)` the clip's extent. Needs
+/// `ClipId::disc_extent`. Linux-only; on other platforms `read_units` errors.
 pub struct LibreDriveReader {
     pub device: PathBuf,
 }
@@ -120,10 +137,19 @@ impl LibreDriveReader {
 }
 
 impl UnitReader for LibreDriveReader {
+    #[cfg(target_os = "linux")]
+    fn read_units(&mut self, clip: &ClipId) -> Result<UnitIter<'_>, ReadError> {
+        let (start_lba, num_units) = clip.disc_extent.ok_or(ReadError::NoExtent)?;
+        let dev = scsi::ScsiDev::open(&self.device.to_string_lossy())?;
+        if !libredrive::unlock(&dev)? {
+            return Err(ReadError::NotLibreDrive);
+        }
+        Ok(Box::new(libredrive::RawUnitIter::new(dev, start_lba, num_units)))
+    }
+
+    #[cfg(not(target_os = "linux"))]
     fn read_units(&mut self, _clip: &ClipId) -> Result<UnitIter<'_>, ReadError> {
-        // TODO(spec 11 §11.4): issue the LibreDrive unlock handshake + raw-read
-        // CDBs (to be captured via SCSI trace) and stream non-bus units.
-        Err(ReadError::Unimplemented("LibreDriveReader: SCSI command set not yet RE'd (spec 11 §11.4)"))
+        Err(ReadError::Unimplemented("LibreDriveReader: SG_IO is Linux-only"))
     }
 }
 
@@ -190,12 +216,27 @@ mod tests {
         ));
     }
 
+    // A LibreDrive read needs a disc extent; with none given it must error before
+    // ever touching the drive (no hardware needed for this check).
+    #[cfg(target_os = "linux")]
     #[test]
-    fn libredrive_backend_is_unimplemented_for_now() {
+    fn libredrive_without_extent_errors_before_touching_drive() {
         let mut r = LibreDriveReader::open("/dev/sr0");
         assert!(matches!(
             r.read_units(&ClipId::default()),
-            Err(ReadError::Unimplemented(_))
+            Err(ReadError::NoExtent)
         ));
+    }
+
+    // The embedded LibreDrive unlock sequence must be the observed handshake-first,
+    // all-READ-BUFFER(0x3C mode 2 / buffer 0x77) table (spec 11 §11.4.7).
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn unlock_table_is_well_formed() {
+        use crate::libredrive_unlock::LIBREDRIVE_UNLOCK_WH16NS60 as T;
+        assert!(T.len() > 100, "unlock table suspiciously short");
+        assert_eq!(T[0], (0x000000, 64), "must start with the 64-byte handshake read");
+        // every read length is the 24-bit allocation length the CDB can carry
+        assert!(T.iter().all(|&(_, len)| len == 64 || len == 4));
     }
 }

@@ -12,6 +12,7 @@ freeblue-keys = { workspace = true }
 freeblue-mkb = { workspace = true }
 freeblue-content = { workspace = true }
 freeblue-disc = { workspace = true }
+freeblue-read = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

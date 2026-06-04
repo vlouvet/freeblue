@@ -56,10 +56,11 @@ freeblue/                     (standalone workspace; scaffolded 2026-06-04)
     freeblue-read/     📋 the READ-PATH layer (NEW — see §8.5.1): non-bus-encrypted
                           stream access for BEE/UHD discs (spec 04 §4.3.2). Not yet
                           scaffolded; the live-disc last mile.
-    freeblue-core/     🚧 orchestration: disc + keys → plaintext M2TS → §0.4. Partial:
-                          Kvu/unwrap helpers + resolve_unit_key (keydb-or-unwrap)
-                          + decrypt_units (streaming, read-agnostic) are implemented
-                          & unit-tested; full decrypt_clip awaits a plumbed reader.
+    freeblue-core/     🚧 orchestration: disc + keys → plaintext M2TS → §0.4. The
+                          chain is wired & unit-tested: resolve_unit_key
+                          (keydb-or-unwrap) + decrypt_units + decrypt_clip (over a
+                          freeblue-read::UnitReader). Remaining: the real GoT
+                          byte-match ($FREEBLUE_FIXTURES) and BEE read routing.
     freeblue-cli/      🚧 `freeblue decrypt`, `freeblue verify`. Stub.
 ```
 
@@ -101,11 +102,14 @@ read-agnostic so it doesn't couple to the in-flux `freeblue-read` API):
 `resolve_unit_key(keydb_unit_key, kvu, unit_key_file, cps_index)` picks the CPS
 Unit Key — the keydb's unwrapped `U` when present, else `AES-128D(Kvu, enc)` over
 the Unit Key File (spec 04 §4.5) — and `decrypt_units(unit_key, raw_units)` lazily
-maps `freeblue-content::decrypt_aligned_unit` over the raw 6144-B units. A full
-`decrypt_clip(disc, keys, clip)` is then
-`decrypt_units(resolve_unit_key(…)?, reader.read_units(clip)?)` once a
-`UnitReader` (§8.5.1) is wired. `CoreError` separates **NoVolumeUniqueKey** and
-the disc-parse error from a cipher bug.
+maps `freeblue-content::decrypt_aligned_unit` over the raw 6144-B units.
+`decrypt_clip(reader, clip, unit_key)` ties them to a
+`freeblue-read::UnitReader` (§8.5.1): it reads the clip's raw units and decrypts
+each, lazily, surfacing a **BEE** disc as the opening `ReadError` (route those to
+a LibreDrive/AACS reader) and per-unit failures as `ClipError` (read I/O vs.
+cipher). `CoreError` separates **NoVolumeUniqueKey** and the disc-parse error from
+a cipher bug. What remains for an end-to-end rip: the real **GoT byte-match**
+(`$FREEBLUE_FIXTURES`), keydb→`resolve_unit_key` glue, and clip enumeration.
 
 ### 8.5.1 The read-path layer (`freeblue-read`) — required for BEE/UHD
 

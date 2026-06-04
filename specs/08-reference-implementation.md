@@ -56,7 +56,10 @@ freeblue/                     (standalone workspace; scaffolded 2026-06-04)
     freeblue-read/     📋 the READ-PATH layer (NEW — see §8.5.1): non-bus-encrypted
                           stream access for BEE/UHD discs (spec 04 §4.3.2). Not yet
                           scaffolded; the live-disc last mile.
-    freeblue-core/     🚧 orchestration: disc + keys → plaintext M2TS → §0.4. Partial.
+    freeblue-core/     🚧 orchestration: disc + keys → plaintext M2TS → §0.4. Partial:
+                          Kvu/unwrap helpers + resolve_unit_key (keydb-or-unwrap)
+                          + decrypt_units (streaming, read-agnostic) are implemented
+                          & unit-tested; full decrypt_clip awaits a plumbed reader.
     freeblue-cli/      🚧 `freeblue decrypt`, `freeblue verify`. Stub.
 ```
 
@@ -92,6 +95,17 @@ Signatures are **illustrative**; per parent Rule 1, the real ones land
 test-first. The `Result` error type must distinguish **"keys revoked by MKB"**
 (spec 03 §3.6), **"Volume ID unavailable"** (spec 04 §4.3), and **"bus-encrypted
 read (BEE)"** (spec 04 §4.3.2) from genuine bugs.
+
+✅ **Implemented decomposition of `decrypt_clip`** (`freeblue-core`,
+read-agnostic so it doesn't couple to the in-flux `freeblue-read` API):
+`resolve_unit_key(keydb_unit_key, kvu, unit_key_file, cps_index)` picks the CPS
+Unit Key — the keydb's unwrapped `U` when present, else `AES-128D(Kvu, enc)` over
+the Unit Key File (spec 04 §4.5) — and `decrypt_units(unit_key, raw_units)` lazily
+maps `freeblue-content::decrypt_aligned_unit` over the raw 6144-B units. A full
+`decrypt_clip(disc, keys, clip)` is then
+`decrypt_units(resolve_unit_key(…)?, reader.read_units(clip)?)` once a
+`UnitReader` (§8.5.1) is wired. `CoreError` separates **NoVolumeUniqueKey** and
+the disc-parse error from a cipher bug.
 
 ### 8.5.1 The read-path layer (`freeblue-read`) — required for BEE/UHD
 

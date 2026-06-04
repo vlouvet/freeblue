@@ -1,0 +1,17 @@
+[package]
+name = "freeblue-core"
+description = "freeblue orchestration: disc + keys -> plaintext M2TS (the §0.4 contract)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+freeblue-crypto = { workspace = true }
+freeblue-keys = { workspace = true }
+freeblue-mkb = { workspace = true }
+freeblue-content = { workspace = true }
+freeblue-disc = { workspace = true }
+
+[dev-dependencies]
+hex = { workspace = true }

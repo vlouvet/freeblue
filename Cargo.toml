@@ -1,0 +1,42 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/freeblue-crypto",
+    "crates/freeblue-keys",
+    "crates/freeblue-mkb",
+    "crates/freeblue-content",
+    "crates/freeblue-disc",
+    "crates/freeblue-core",
+    "crates/freeblue-cli",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.75"
+# License pending final decision — see specs/10-legal-and-licensing.md §10.5.
+# LGPL-2.1-or-later is the proposed default (matches the FLOSS BD stack).
+license = "LGPL-2.1-or-later"
+repository = ""
+authors = ["freeblue contributors"]
+
+[workspace.dependencies]
+# Pure-Rust crypto (RustCrypto). No libaacs FFI — all-original (spec 08 §8.6).
+aes = "0.8"
+sha2 = "0.10"
+zeroize = "1"
+hex = "0.4"
+thiserror = "1"
+anyhow = "1"
+
+# Internal crates
+freeblue-crypto = { path = "crates/freeblue-crypto" }
+freeblue-keys = { path = "crates/freeblue-keys" }
+freeblue-mkb = { path = "crates/freeblue-mkb" }
+freeblue-content = { path = "crates/freeblue-content" }
+freeblue-disc = { path = "crates/freeblue-disc" }
+freeblue-core = { path = "crates/freeblue-core" }
+
+[profile.release]
+lto = true
+codegen-units = 1

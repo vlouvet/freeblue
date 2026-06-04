@@ -1,0 +1,11 @@
+[package]
+name = "freeblue-disc"
+description = "UHD/BD on-disc AACS structures and raw encrypted stream access for freeblue"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+freeblue-crypto = { workspace = true }
+thiserror = { workspace = true }

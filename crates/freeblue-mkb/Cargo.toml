@@ -1,0 +1,13 @@
+[package]
+name = "freeblue-mkb"
+description = "AACS Media Key Block parsing and processing-key -> media-key derivation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+freeblue-crypto = { workspace = true }
+
+[dev-dependencies]
+hex = { workspace = true }

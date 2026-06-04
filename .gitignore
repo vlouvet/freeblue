@@ -1,0 +1,44 @@
+# ── Build artifacts ────────────────────────────────────────────────
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# ── Secrets / keys / DRM material — NEVER COMMIT (spec 10 §10.4) ────
+# AACS device keys, processing keys, host certs, key databases
+KEYDB.cfg
+KEYDB*
+keydb*
+*.key
+device-key*
+processing-key*
+host-cert*
+mk_*.txt
+vuk_*.txt
+
+# ── Disc images, dumps, and ripped media — NEVER COMMIT ─────────────
+*.iso
+*.img
+*.m2ts
+*.mkv
+*.tgz
+*.tar
+*.tar.gz
+
+# ── Reference material (res/): large, third-party, and/or keys ──────
+# Local-only — see res/README.md for the public sources to repopulate it.
+/res/*
+!/res/README.md
+
+# ── Local test fixtures: real MKB/keys/structures (spec 09 §9.6) ────
+# Referenced via $FREEBLUE_FIXTURES; never in the repo.
+/fixtures/*
+!/fixtures/README.md
+
+# ── Editor / OS ─────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+.env
+.env.local

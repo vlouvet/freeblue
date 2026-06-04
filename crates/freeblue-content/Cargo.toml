@@ -1,0 +1,13 @@
+[package]
+name = "freeblue-content"
+description = "AACS Aligned-Unit content decryption (block key + AES-128-CBC) for freeblue"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+freeblue-crypto = { workspace = true }
+
+[dev-dependencies]
+hex = { workspace = true }

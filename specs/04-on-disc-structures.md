@@ -207,6 +207,15 @@ to its **CPS unit index** to its `Kcu` is the join that lets spec 05 pick the
 right key per stream — its encoding remains a priority **[?]** (overlaps spec 02
 §2.8, spec 05 §5.2).
 
+✅ **Implemented (`freeblue-disc`):** `encrypted_unit_key(unit_key_file, index)`
+slices the 16-byte encrypted CPS Unit Key at `112 + index*16` (the `[Disc]`
+offset above); `freeblue-core::unwrap_unit_key` then does `AES-128D(Kvu, ·)`.
+The structure bytes are read from an extracted **folder dump** via `Disc::mkb()`
+/ `Disc::unit_key_file()` (the MKBv82 fixture's shape, §4.6); the image/UDF and
+raw-`m2ts` paths are `freeblue-read`'s (spec 11). The CPS-unit **count** and the
+clip→unit **mapping** stay **[?]** — index 0 serves a basic single-unit disc.
+Tests use synthetic structure bytes (no key material, parent Rule 4).
+
 ## 4.6 Working from an image vs. a live drive
 
 Two intake modes, with different `[?]` exposure:

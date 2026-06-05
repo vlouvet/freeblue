@@ -3,7 +3,8 @@
 A clean-room, **all-original Rust** library that decrypts **AACS 2.0** (Ultra HD
 / 4K Blu-ray) — the gap the FLOSS stack (`libaacs`/`libbluray`) leaves open. It
 turns an encrypted UHD/BD volume plus user-supplied key material into **plaintext
-M2TS**, so a remuxer like [`rippidydoodah`](../rippidydoodah/) can produce a
+M2TS**, so a remuxer like
+[`rippidydoodah`](https://github.com/vlouvet/rippidydoodah) can produce a
 playable `.mkv`.
 
 > **Status:** **freeblue reads and decrypts a real UHD/AACS 2.0 disc on its own —
@@ -69,10 +70,42 @@ vectors, the content block-key vector, the bus-decrypt round-trip) that encode t
 the real-disc byte-matches; they load encrypted units + keys from
 `$FREEBLUE_FIXTURES` and never ship in the repo (Rule 4).
 
-## Working agreement & legal
+## Working agreement
 
 Read [`CLAUDE.md`](CLAUDE.md) before contributing: **TDD-always**, **spec-first**,
-**no keys/media in the repo, ever**. `freeblue` performs decryption for
-interoperability with discs you own; it ships **no keys** and is built clean-room
-from public AACS specs + standards, never from MakeMKV/CyberLink source. Full
-posture: [`specs/10-legal-and-licensing.md`](specs/10-legal-and-licensing.md).
+**no keys/media in the repo, ever**. `freeblue` is built **clean-room** from
+public AACS specifications and NIST/RFC standards plus public 37c3 research —
+never from MakeMKV/CyberLink/`libaacs` source (which is consulted, if at all, only
+as a read-only behavioral oracle; no code is copied).
+
+## License
+
+GPL-3.0-or-later — full text in [`LICENSE`](LICENSE). Licensing rationale and the
+spec/docs vs. code split: [`specs/10-legal-and-licensing.md`](specs/10-legal-and-licensing.md).
+
+## Legal & disclaimer
+
+`freeblue` is a Free Software **interoperability** library that decrypts AACS 2.0
+(UHD/4K Blu-ray) so discs you own can be played and remuxed on the platforms of
+your choice — the gap the FLOSS Blu-ray stack leaves open. It is research and
+interoperability software, not a piracy tool.
+
+- **No keys, tables, or media are included.** freeblue ships **no** device keys,
+  processing keys, media keys, `KEYDB.cfg`, host certificates, Volume IDs, unit
+  keys, or any copyrighted content — encrypted or decrypted. All key material is
+  supplied by you at runtime and lives only in git-ignored `fixtures/` (Rule 4).
+- **Clean-room originality.** Cryptographic constants and protocol facts come from
+  public AACS specs, NIST/RFC standards, and published 37c3 research, each cited
+  inline. Constants/protocol facts are not copyrightable; no third-party code is
+  copied (spec 08 §8.6, spec 10 §10.2).
+- **Decryption / circumvention may be regulated where you live.** Bypassing copy
+  protection on optical media is restricted or unlawful in some jurisdictions
+  (e.g. the DMCA in the United States, the EUCD in parts of the EU), even for a
+  disc you own. **You are solely responsible for ensuring your use complies with
+  the laws that apply to you.**
+- **No warranty.** Provided "as is", without warranty of any kind, to the extent
+  permitted by the GPL-3.0 (see §15–17 of the [`LICENSE`](LICENSE)).
+
+This is not legal advice. If you are unsure whether your intended use is lawful
+where you are, consult a qualified lawyer in your jurisdiction. Full posture:
+[`specs/10-legal-and-licensing.md`](specs/10-legal-and-licensing.md).

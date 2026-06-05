@@ -1,0 +1,38 @@
+# CI — runs only on pushes to `main` (post-merge gate), per the maintainer's
+# request. freeblue is pure Rust (no C libraries / build.rs), so no system
+# packages are needed. The toolchain (1.75.0 + rustfmt + clippy) is pinned by
+# `rust-toolchain.toml` and auto-installed by rustup on the first cargo call.
+name: CI
+
+on:
+  push:
+    branches: [main]
+
+# Don't pile up overlapping runs on rapid pushes to main.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: fmt · clippy · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show pinned toolchain (rust-toolchain.toml)
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format (cargo fmt --check)
+        run: cargo fmt --all -- --check
+
+      - name: Lint (clippy, warnings = errors)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace

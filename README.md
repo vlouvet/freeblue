@@ -47,7 +47,7 @@ crates/
   freeblue-disc      /AACS/ structures + raw m2ts read       (✅ implemented + tests)
   freeblue-read      UnitReader: PlainUdfReader + LibreDrive  (✅ LibreDrive unlock via SG_IO — no MakeMKV)
   freeblue-core      orchestration → plaintext M2TS          (✅ implemented + tests)
-  freeblue-cli       `freeblue` binary                       (🚧 stub)
+  freeblue-cli       `freeblue` unlock / decrypt / decrypt-disc (✅ standalone rip — no MakeMKV)
 res/            Reference material (git-ignored) — see res/README.md.
 fixtures/       Local KAT fixtures w/ real keys (git-ignored) — see fixtures/README.md.
 overview.md     One-page project intro.
@@ -69,6 +69,30 @@ vectors, the content block-key vector, the bus-decrypt round-trip) that encode t
 `[Disc]`-verified algorithms and pass on `cargo test`. The `#[ignore]`d KATs are
 the real-disc byte-matches; they load encrypted units + keys from
 `$FREEBLUE_FIXTURES` and never ship in the repo (Rule 4).
+
+## Decrypt a disc (no MakeMKV)
+
+On a LibreDrive-capable drive (e.g. LG WH16NS60), `freeblue` reads and decrypts a
+protected UHD/BD disc itself. SG_IO + mount need root.
+
+```sh
+# 1. Put the drive in raw-read mode (replays the read-only LibreDrive unlock).
+sudo freeblue unlock /dev/sr0
+
+# 2. Mount the now-raw disc and decrypt an m2ts to plaintext M2TS.
+sudo mount -t udf -o ro /dev/sr0 /mnt/disc
+sudo freeblue decrypt /mnt/disc/BDMV/STREAM/00002.m2ts \
+     --unit-key <32-hex-CPS-unit-key> -o title.m2ts      # → 32/32 TS-sync
+
+# …or read an extent straight off the drive (no mount):
+sudo freeblue decrypt-disc /dev/sr0 --start-lba N --num-units M \
+     --unit-key <hex> -o title.m2ts
+```
+
+The CPS unit key is the keydb `U` field for the disc (auto-resolution from the
+disc's Volume ID is on the roadmap — spec 12 §12.15). `freeblue` only ever issues
+`READ BUFFER`/`READ(10)` — it never flashes firmware, so it cannot brick a drive;
+a non-LibreDrive drive simply reports `not LibreDrive-capable`.
 
 ## Working agreement
 

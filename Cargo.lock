@@ -60,6 +60,8 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "freeblue-core",
+ "freeblue-read",
+ "hex",
 ]
 
 [[package]]

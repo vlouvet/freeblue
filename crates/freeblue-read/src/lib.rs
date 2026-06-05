@@ -162,6 +162,17 @@ impl UnitReader for LibreDriveReader {
     }
 }
 
+/// Run the LibreDrive unlock on a drive (spec 11 §11.4.7) so that *subsequent*
+/// reads — including ordinary OS mounts / `PlainUdfReader` — return **raw**
+/// (content-encrypted, non-bus) sectors. Returns `true` if the drive answered the
+/// LibreDrive handshake (`MMkv`), `false` for a non-LibreDrive drive. Read-only;
+/// cannot harm the drive. Linux-only.
+#[cfg(target_os = "linux")]
+pub fn libredrive_unlock(device: &str) -> Result<bool, ReadError> {
+    let dev = scsi::ScsiDev::open(device)?;
+    Ok(libredrive::unlock(&dev)?)
+}
+
 /// Reads non-bus content via AACS drive↔host auth + bus key (spec 11 §11.3.3).
 /// Needs an unrevoked host certificate (spec 06 §6.6) — currently impractical.
 pub struct AacsAuthReader {

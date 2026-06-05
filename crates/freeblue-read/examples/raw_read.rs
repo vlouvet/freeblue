@@ -13,13 +13,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let (dev, start, n, out) = (&a[1], a[2].parse::<u64>()?, a[3].parse::<u64>()?, &a[4]);
     let mut r = LibreDriveReader::open(dev);
-    let clip = ClipId { path: None, disc_extent: Some((start, n)) };
+    let clip = ClipId {
+        path: None,
+        disc_extent: Some((start, n)),
+    };
     let mut f = std::fs::File::create(out)?;
     let mut count = 0usize;
     for unit in r.read_units(&clip)? {
         f.write_all(&unit?)?;
         count += 1;
     }
-    eprintln!("wrote {count} units ({} bytes) from lba {start} to {out}", count * 6144);
+    eprintln!(
+        "wrote {count} units ({} bytes) from lba {start} to {out}",
+        count * 6144
+    );
     Ok(())
 }

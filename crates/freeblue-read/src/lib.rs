@@ -35,7 +35,10 @@ pub struct ClipId {
 
 impl ClipId {
     pub fn from_path(p: impl Into<PathBuf>) -> Self {
-        ClipId { path: Some(p.into()), disc_extent: None }
+        ClipId {
+            path: Some(p.into()),
+            disc_extent: None,
+        }
     }
 }
 
@@ -111,9 +114,9 @@ impl Iterator for FileUnitIter {
             }
         }
         match filled {
-            0 => None,                       // clean EOF
+            0 => None, // clean EOF
             ALIGNED_UNIT_LEN => Some(Ok(buf)),
-            _ => None,                       // trailing partial unit — stop
+            _ => None, // trailing partial unit — stop
         }
     }
 }
@@ -132,7 +135,9 @@ pub struct LibreDriveReader {
 
 impl LibreDriveReader {
     pub fn open(device: impl Into<PathBuf>) -> Self {
-        LibreDriveReader { device: device.into() }
+        LibreDriveReader {
+            device: device.into(),
+        }
     }
 }
 
@@ -144,12 +149,16 @@ impl UnitReader for LibreDriveReader {
         if !libredrive::unlock(&dev)? {
             return Err(ReadError::NotLibreDrive);
         }
-        Ok(Box::new(libredrive::RawUnitIter::new(dev, start_lba, num_units)))
+        Ok(Box::new(libredrive::RawUnitIter::new(
+            dev, start_lba, num_units,
+        )))
     }
 
     #[cfg(not(target_os = "linux"))]
     fn read_units(&mut self, _clip: &ClipId) -> Result<UnitIter<'_>, ReadError> {
-        Err(ReadError::Unimplemented("LibreDriveReader: SG_IO is Linux-only"))
+        Err(ReadError::Unimplemented(
+            "LibreDriveReader: SG_IO is Linux-only",
+        ))
     }
 }
 
@@ -161,7 +170,9 @@ pub struct AacsAuthReader {
 
 impl UnitReader for AacsAuthReader {
     fn read_units(&mut self, _clip: &ClipId) -> Result<UnitIter<'_>, ReadError> {
-        Err(ReadError::Unimplemented("AacsAuthReader: needs an unrevoked host cert (spec 06 §6.6)"))
+        Err(ReadError::Unimplemented(
+            "AacsAuthReader: needs an unrevoked host cert (spec 06 §6.6)",
+        ))
     }
 }
 
@@ -235,7 +246,11 @@ mod tests {
     fn unlock_table_is_well_formed() {
         use crate::libredrive_unlock::LIBREDRIVE_UNLOCK_WH16NS60 as T;
         assert!(T.len() > 100, "unlock table suspiciously short");
-        assert_eq!(T[0], (0x000000, 64), "must start with the 64-byte handshake read");
+        assert_eq!(
+            T[0],
+            (0x000000, 64),
+            "must start with the 64-byte handshake read"
+        );
         // every read length is the 24-bit allocation length the CDB can carry
         assert!(T.iter().all(|&(_, len)| len == 64 || len == 4));
     }

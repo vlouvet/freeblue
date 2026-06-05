@@ -62,6 +62,9 @@ impl ScsiDev {
     }
 
     /// Issue one drive→host CDB, returning `dxfer_len` bytes (minus any residual).
+    // `from_dev` names the SCSI transfer direction (SG_DXFER_FROM_DEV), not a
+    // constructor — the `wrong_self_convention` lint doesn't apply here.
+    #[allow(clippy::wrong_self_convention)]
     fn from_dev(&self, cdb: &[u8], dxfer_len: usize) -> io::Result<Vec<u8>> {
         let mut buf = vec![0u8; dxfer_len];
         let mut sense = [0u8; 64];

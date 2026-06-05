@@ -34,7 +34,11 @@ pub struct DiscKeys {
 
 impl Drop for DiscKeys {
     fn drop(&mut self) {
-        for k in [&mut self.media_key, &mut self.volume_id, &mut self.volume_unique_key] {
+        for k in [
+            &mut self.media_key,
+            &mut self.volume_id,
+            &mut self.volume_unique_key,
+        ] {
             if let Some(b) = k.as_mut() {
                 b.zeroize();
             }
@@ -80,7 +84,9 @@ pub enum KeyError {
 
 /// Strip an optional `0x`/`0X` prefix.
 fn strip0x(s: &str) -> &str {
-    s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s)
+    s.strip_prefix("0x")
+        .or_else(|| s.strip_prefix("0X"))
+        .unwrap_or(s)
 }
 
 /// Decode hex (with optional `0x`) to bytes.
@@ -256,7 +262,10 @@ mod tests {
     fn parses_global_records() {
         let db = KeyDb::parse(FIXTURE).unwrap();
         assert_eq!(db.processing_keys.len(), 1);
-        assert_eq!(db.processing_keys[0].key, b("404142434445464748494A4B4C4D4E4F"));
+        assert_eq!(
+            db.processing_keys[0].key,
+            b("404142434445464748494A4B4C4D4E4F")
+        );
         assert_eq!(db.processing_keys[0].mkb_versions, "MKBv63");
 
         assert_eq!(db.device_keys.len(), 1);
@@ -278,7 +287,10 @@ mod tests {
             .expect("disc present");
         assert_eq!(d.media_key.unwrap(), b("000102030405060708090A0B0C0D0E0F"));
         assert_eq!(d.volume_id.unwrap(), b("101112131415161718191A1B1C1D1E1F"));
-        assert_eq!(d.volume_unique_key.unwrap(), b("202122232425262728292A2B2C2D2E2F"));
+        assert_eq!(
+            d.volume_unique_key.unwrap(),
+            b("202122232425262728292A2B2C2D2E2F")
+        );
         assert_eq!(d.unit_keys, vec![b("303132333435363738393A3B3C3D3E3F")]);
     }
 
@@ -313,6 +325,9 @@ mod tests {
             .values()
             .filter(|d| d.volume_unique_key.is_some() || !d.unit_keys.is_empty())
             .count();
-        assert!(usable as f64 > db.discs.len() as f64 * 0.9, "usable = {usable}");
+        assert!(
+            usable as f64 > db.discs.len() as f64 * 0.9,
+            "usable = {usable}"
+        );
     }
 }

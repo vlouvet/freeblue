@@ -206,7 +206,11 @@ mod tests {
         let ct = bus_encrypt_unit(&rdk, &pt);
         // Heads of each 2048-B sector are NOT bus-encrypted.
         for s in (0..ALIGNED_UNIT_LEN).step_by(2048) {
-            assert_eq!(ct[s..s + 16], pt[s..s + 16], "sector {s} head must pass through");
+            assert_eq!(
+                ct[s..s + 16],
+                pt[s..s + 16],
+                "sector {s} head must pass through"
+            );
         }
         // Bodies ARE changed.
         assert_ne!(ct[16..2048], pt[16..2048], "sector body must be encrypted");

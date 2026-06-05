@@ -90,12 +90,16 @@ spec 10 §10.7):
 - **Spec text** (`specs/`, `res/` annotations, README): a permissive docs
   license — **CC BY-SA 4.0** proposed, so the reconstruction stays Free and
   attributable. **[?]** confirm with maintainer.
-- **Reference implementation** (spec 08): **GPL-compatible**, **LGPL-2.1+**
-  proposed to match `libaacs`/`libbluray` and keep the door open to upstreaming
-  v2 support into `libaacs` (spec 08 §8.6). **[?]** confirm with maintainer.
-- The two may differ deliberately: docs CC BY-SA, code (L)GPL — the common
-  FLOSS split. Final choice recorded here once the maintainer decides; until
-  then treat the repo as "all rights reserved, internal" and do not redistribute.
+- **Reference implementation** (spec 08): **GPL-3.0-or-later** — **decided**
+  by the maintainer. The full text ships as [`../LICENSE`](../LICENSE) and the
+  workspace declares `license = "GPL-3.0-or-later"`. This matches
+  `rippidydoodah` (rdd spec 10 §10.5), the primary consumer, which links
+  `freeblue` and is itself GPL. The earlier LGPL-2.1+ proposal (to keep the door
+  open to upstreaming v2 support into `libaacs`) is **superseded**: aligning the
+  code license with rdd was preferred over the upstreaming option.
+- The two may differ deliberately: docs CC BY-SA, code GPL-3.0+ — the common
+  FLOSS split. With the code license now decided the repo is redistributable
+  under GPL-3.0-or-later.
 
 ## 10.6 Citations and provenance hygiene
 
@@ -117,10 +121,10 @@ to them.
 
 ## 10.8 Open questions
 
-- **[?]** Maintainer decision on spec license (CC BY-SA?) and code license
-  (LGPL-2.1+?) (§10.5).
-- **[?]** Whether to pursue upstreaming into `libaacs` (changes the licensing
-  calculus toward LGPL; spec 08 §8.6).
+- **[E]** Code license **decided: GPL-3.0-or-later** (§10.5). Spec/docs license
+  (CC BY-SA?) still **[?]** pending maintainer confirmation.
+- **[E]** Upstreaming into `libaacs` is **not** being pursued — GPL-3.0+ was
+  chosen over LGPL to align with `rippidydoodah` (§10.5; spec 08 §8.6).
 - **[?]** Jurisdiction-specific review before publishing the reference
   implementation (vs. the spec), given the DVD-CSS/`libaacs` precedents (§10.3).
 - **[?]** Legal sign-off on any static-RE of proprietary binaries (§10.2 #5,

@@ -15,10 +15,10 @@ members = [
 version = "0.0.0"
 edition = "2021"
 rust-version = "1.75"
-# License pending final decision — see specs/10-legal-and-licensing.md §10.5.
-# LGPL-2.1-or-later is the proposed default (matches the FLOSS BD stack).
-license = "LGPL-2.1-or-later"
-repository = ""
+# GPL-3.0-or-later (decided — see specs/10-legal-and-licensing.md §10.5).
+# Matches `rippidydoodah`, the primary consumer, and the FLOSS BD stack.
+license = "GPL-3.0-or-later"
+repository = "https://github.com/vlouvet/freeblue"
 authors = ["freeblue contributors"]
 
 [workspace.dependencies]

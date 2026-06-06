@@ -134,6 +134,7 @@ each spec is and whether its code has landed.
 | 10 | [10-legal-and-licensing.md](10-legal-and-licensing.md) | Clean-room discipline, DMCA / interoperability posture, no-keys-in-repo policy, license | 📄 Reference |
 | 11 | [11-read-path-and-bus-encryption.md](11-read-path-and-bus-encryption.md) | The read layer: bus encryption (BEE), the `UnitReader` trait, LibreDrive RE; §11.4.5 byte-vs-MakeMKV verification of the capture+decrypt path | ✅ Verified (non-BEE) / 🚧 BEE |
 | 12 | [12-known-issues-and-deferred-work.md](12-known-issues-and-deferred-work.md) | Known issues, open bugs, deferred work, and validation traps — the live register | 🚧 Living |
+| 13 | [13-multi-drive-support.md](13-multi-drive-support.md) | Extending the read path beyond one drive: data-driven LibreDrive unlock registry + drive fingerprint + capture harness (Axis A), and the drive-agnostic `AacsAuthReader` standard-auth path (Axis B) | 📋 Design |
 
 ## One-paragraph summary
 

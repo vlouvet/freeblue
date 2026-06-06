@@ -97,7 +97,7 @@ impl ScsiDev {
                     hdr.status,
                     hdr.host_status,
                     hdr.driver_status,
-                    &sense[..sense.len().min(8)]
+                    &sense[..sense.len().min(18)]
                 ),
             ));
         }
@@ -145,6 +145,53 @@ impl ScsiDev {
             0x00,
         ];
         self.from_dev(&cdb, sectors as usize * 2048)
+    }
+
+    /// READ DISC STRUCTURE (`0xAD`): read a BD/AACS structure by `format`.
+    /// `agid` (0–3) goes in the top two bits of byte 10; `alloc` is the response
+    /// size. 12-byte CDB (MMC-5 §6.25). Used for the AACS Volume ID (spec 12
+    /// §12.15); the libaacs path gates this behind the AKE handshake, but on a
+    /// LibreDrive-unlocked drive we test whether it answers without it.
+    pub fn read_disc_structure(
+        &self,
+        media: u8,
+        format: u8,
+        agid: u8,
+        alloc: u16,
+    ) -> io::Result<Vec<u8>> {
+        let cdb = [
+            0xAD,
+            media & 0x0F,
+            0x00,
+            0x00,
+            0x00,
+            0x00, // address (unused for the Volume ID format)
+            0x00, // layer
+            format,
+            (alloc >> 8) as u8,
+            alloc as u8,
+            (agid & 0x03) << 6,
+            0x00, // control
+        ];
+        self.from_dev(&cdb, alloc as usize)
+    }
+
+    /// Read the 16-byte AACS **Volume ID** (IDv) via READ DISC STRUCTURE format
+    /// `0x80`. The 36-byte response is `[len:2 | rsv:2 | VID:16 | MAC:16]`; we
+    /// return the VID. The trailing MAC is keyed by the AKE bus key (which the
+    /// LibreDrive path never negotiates), so it is *not* verified here — the VID
+    /// is validated downstream by decrypting a unit and checking TS sync.
+    pub fn read_volume_id(&self) -> io::Result<[u8; 16]> {
+        let resp = self.read_disc_structure(0x01, 0x80, 0, 36)?;
+        if resp.len() < 20 {
+            return Err(io::Error::other(format!(
+                "Volume ID response too short: {} bytes (want >= 20)",
+                resp.len()
+            )));
+        }
+        let mut vid = [0u8; 16];
+        vid.copy_from_slice(&resp[4..20]);
+        Ok(vid)
     }
 }
 

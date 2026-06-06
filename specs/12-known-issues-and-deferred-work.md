@@ -202,10 +202,32 @@ only bricking risk, and `freeblue` never flashes.
 ## 12.15 🟡 Auto unit-key from disc Volume ID + keydb `[?]`
 
 `freeblue decrypt` currently takes `--unit-key <hex>` (the keydb `U` field, looked
-up by hand). Turnkey resolution = read the disc's **Volume ID** (SG_IO `READ DISC
-STRUCTURE 0xAD`, AACS format — available after unlock) → match it against the keydb
-`I` fields → use that entry's `U`/`V`. `freeblue-keys` already parses the keydb;
-the missing pieces are the `0xAD` Volume-ID read and a by-Volume-ID lookup index.
+up by hand). Turnkey resolution = read the disc's **Volume ID** → derive the
+unit key (with a covering processing key, spec 03) or match the keydb `I` fields.
+
+**`READ DISC STRUCTURE 0xAD / format 0x80` (`scsi::ScsiDev::read_volume_id`,
+implemented) — and the LibreDrive-unlock-is-enough assumption is WRONG `[Disc]`.**
+Tested on the WH16NS60 + a real BD+ disc (MKBv4), both before and after a
+successful LibreDrive unlock, `0xAD/0x80` returns CHECK CONDITION with sense key
+`0x05` (ILLEGAL REQUEST), ASC/ASCQ **`0x6F/0x02` = "Copy Protection Key Exchange
+Failure — key not established"**. So:
+
+- **LibreDrive unlock ≠ AACS auth.** Unlock enables raw *content* reads
+  (`READ(10)` returns non-bus-encrypted Aligned Units, §11.4.6); it does **not**
+  establish a bus key, and the drive gates the Volume ID behind a completed
+  **AKE** (AGID alloc `0xA4`/0x00 → host cert `0xA3`/0x01 → drive cert/key
+  verify → bus key; libaacs `mmc.c`). The VID's trailing MAC is bus-key-keyed,
+  consistent with this.
+- **Open `[?]` (the A1 make-or-break):** does the *unlocked* drive accept the
+  keydb's (otherwise drive-**revoked**) host cert in the AKE, where the plain
+  libaacs path is rejected ("host cert revoked by your drive")? If yes →
+  implement the AKE (needs EC P-256 ECDSA/ECDH + AES-CMAC, not yet in
+  freeblue-crypto) and the VID read works. If no → the VID is unreadable on this
+  drive for discs not already in the keydb; fall back to a supplied `--unit-key`
+  / VUK, or an external key oracle.
+- Note: the Media Key derives **FLOSS** from the disc MKB + a covering processing
+  key (`freeblue-mkb::derive_media_key`, verify-record-confirmed on this disc),
+  so the Volume ID is the *only* remaining input for a fully-FLOSS VUK → unit key.
 
 ---
 

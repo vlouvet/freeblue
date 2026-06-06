@@ -173,6 +173,23 @@ pub fn libredrive_unlock(device: &str) -> Result<bool, ReadError> {
     Ok(libredrive::unlock(&dev)?)
 }
 
+/// Read the disc's 16-byte AACS **Volume ID** (IDv) via READ DISC STRUCTURE
+/// `0x80` (spec 12 §12.15 — the open item that lets the unit key auto-resolve
+/// from the keydb instead of `--unit-key`). When `unlock_first`, run the
+/// LibreDrive unlock on the *same* drive handle before the read — the A1
+/// hypothesis is that an unlocked drive answers `0xAD/0x80` without the AKE
+/// handshake (which needs an unrevoked host cert). Returns the VID on success.
+/// The VID's correctness is confirmed downstream by decryption, not the (bus-key)
+/// MAC. Read-only. Linux-only.
+#[cfg(target_os = "linux")]
+pub fn read_volume_id(device: &str, unlock_first: bool) -> Result<[u8; 16], ReadError> {
+    let dev = scsi::ScsiDev::open(device)?;
+    if unlock_first {
+        libredrive::unlock(&dev)?;
+    }
+    Ok(dev.read_volume_id()?)
+}
+
 /// Reads non-bus content via AACS drive↔host auth + bus key (spec 11 §11.3.3).
 /// Needs an unrevoked host certificate (spec 06 §6.6) — currently impractical.
 pub struct AacsAuthReader {

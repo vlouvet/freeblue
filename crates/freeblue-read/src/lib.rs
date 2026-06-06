@@ -190,6 +190,62 @@ pub fn read_volume_id(device: &str, unlock_first: bool) -> Result<[u8; 16], Read
     Ok(dev.read_volume_id()?)
 }
 
+/// A1 go/no-go probe (spec 12 §12.15): after a LibreDrive unlock, walk the start
+/// of the AACS AKE — allocate an AGID, **send `host_cert`**, then read the drive
+/// certificate — and report exactly where the drive accepts or rejects. The
+/// decisive question is whether the *unlocked* drive accepts a host cert the
+/// plain libaacs path reported as drive-**revoked**. Returns a step-by-step log;
+/// never panics. The host nonce is left zero (the bus key isn't derived here, so
+/// only cert acceptance is exercised). Read-only. Linux-only.
+#[cfg(target_os = "linux")]
+pub fn partial_ake_probe(device: &str, host_cert: &[u8]) -> Result<String, ReadError> {
+    use std::fmt::Write as _;
+    let dev = scsi::ScsiDev::open(device)?;
+    let mut log = String::new();
+    let unlocked = libredrive::unlock(&dev)?;
+    let _ = writeln!(log, "1. LibreDrive unlock     : {unlocked}");
+
+    let agid = match dev.report_agid() {
+        Ok(a) => {
+            let _ = writeln!(log, "2. REPORT KEY (AGID)     : OK (agid={a})");
+            a
+        }
+        Err(e) => {
+            let _ = writeln!(log, "2. REPORT KEY (AGID)     : FAILED — {e}");
+            return Ok(log);
+        }
+    };
+
+    if host_cert.len() != 92 {
+        let _ = writeln!(log, "   (host_cert is {} bytes, expected 92)", host_cert.len());
+    }
+    // SEND KEY data (format 0x01): [len:2 | rsv:2 | host_nonce:20 | host_cert:92]
+    let mut data = vec![0u8; 116];
+    data[1] = 0x72; // length-of-rest = 114 = 0x0072
+    let n = host_cert.len().min(92);
+    data[24..24 + n].copy_from_slice(&host_cert[..n]);
+    match dev.send_key(0x01, agid, &data) {
+        Ok(()) => {
+            let _ = writeln!(log, "3. SEND KEY (host cert)  : ACCEPTED ✅ (cert not rejected at send)");
+            match dev.report_key(0x01, agid, 116) {
+                Ok(_) => {
+                    let _ = writeln!(
+                        log,
+                        "4. REPORT KEY (drive cert): OK ✅ — AKE proceeds; host cert ACCEPTED post-unlock"
+                    );
+                }
+                Err(e) => {
+                    let _ = writeln!(log, "4. REPORT KEY (drive cert): FAILED — {e}");
+                }
+            }
+        }
+        Err(e) => {
+            let _ = writeln!(log, "3. SEND KEY (host cert)  : REJECTED ❌ — {e}");
+        }
+    }
+    Ok(log)
+}
+
 /// Reads non-bus content via AACS drive↔host auth + bus key (spec 11 §11.3.3).
 /// Needs an unrevoked host certificate (spec 06 §6.6) — currently impractical.
 pub struct AacsAuthReader {

@@ -218,13 +218,23 @@ Failure — key not established"**. So:
   **AKE** (AGID alloc `0xA4`/0x00 → host cert `0xA3`/0x01 → drive cert/key
   verify → bus key; libaacs `mmc.c`). The VID's trailing MAC is bus-key-keyed,
   consistent with this.
-- **Open `[?]` (the A1 make-or-break):** does the *unlocked* drive accept the
-  keydb's (otherwise drive-**revoked**) host cert in the AKE, where the plain
-  libaacs path is rejected ("host cert revoked by your drive")? If yes →
-  implement the AKE (needs EC P-256 ECDSA/ECDH + AES-CMAC, not yet in
-  freeblue-crypto) and the VID read works. If no → the VID is unreadable on this
-  drive for discs not already in the keydb; fall back to a supplied `--unit-key`
-  / VUK, or an external key oracle.
+- **RESOLVED `[Disc]` — the AKE is blocked by the revoked host cert, even
+  post-unlock.** Partial-AKE probe (`partial_ake_probe`) on the unlocked
+  WH16NS60: `REPORT KEY` AGID alloc **succeeds** (agid=0, AACS channel open), but
+  `SEND KEY` of the keydb host cert is **REJECTED** with sense `0x05`, ASC/ASCQ
+  **`0x6F/0x00` = AUTHENTICATION FAILURE**. The SEND KEY data layout is
+  byte-identical to libaacs `_mmc_send_host_cert` (buf[1]=0x72, nonce@+4,
+  cert@+24), so it's a genuine cert rejection — corroborated by the plain
+  libaacs path already reporting cert id `0xffff800001c1` "revoked by your
+  drive". **LibreDrive bypasses read restrictions, NOT AACS authentication.**
+- **Consequence:** a fully-FLOSS Volume-ID read is impossible on this hardware
+  with the only available (revoked) host cert — a fundamental AACS barrier, not a
+  freeblue gap (libaacs has the same wall). freeblue's FLOSS coverage therefore
+  equals the **keydb** (discs with `V`/`U` present need no VID read). Discs *not*
+  in the keydb — even ones whose Media Key we can derive FLOSS — cannot complete
+  the VUK without the Volume ID, and must fall back to a supplied `--unit-key`/VUK
+  or an external key oracle (A2 / makemkvcon). An unrevoked host cert would lift
+  this, but none exists in the FLOSS world.
 - Note: the Media Key derives **FLOSS** from the disc MKB + a covering processing
   key (`freeblue-mkb::derive_media_key`, verify-record-confirmed on this disc),
   so the Volume ID is the *only* remaining input for a fully-FLOSS VUK → unit key.

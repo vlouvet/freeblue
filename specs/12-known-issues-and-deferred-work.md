@@ -191,6 +191,11 @@ the sequence. Also worth doing: **minimize** the 521-command sequence to the sub
 that flips raw mode (the handshake + likely a few reads), for a cleaner, more
 portable unlock.
 
+**Design proposal:** the generalization path (registry + drive fingerprint +
+capture harness, plus the drive-agnostic `AacsAuthReader` alternative) is now
+specified in **spec 13 — Multi-Drive Support**. The do-not-brick caveat below
+remains binding and is restated there (§13.1).
+
 **Drive caveat (do not brick):** LibreDrive requires a specific (MediaTek) chipset —
 LG WH16NS60/BU40N, ASUS BW-16D1HT, Pioneer BDR-XD07/XS07 (old firmware only),
 Buffalo externals. The **Lite-On iHBS212 here is NOT LibreDrive-capable** (wrong

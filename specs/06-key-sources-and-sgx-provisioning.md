@@ -4,13 +4,16 @@
 > so the project understands its single most important *input* and its
 > provenance. **This is background, not a freeblue work item:** spec 00 §0.3
 > makes new key extraction a hard non-goal. `freeblue`'s trust boundary begins
-> *after* the keys exist. Almost entirely **[R]** from `res/talk-transcript.txt`.
+> *after* the keys exist. Mostly **[R]** from `res/talk-transcript.txt`; §6.5 and
+> §6.6.1 are now **[Disc]**-verified against real hardware.
 
 ## 6.1 The input freeblue consumes
 
 `freeblue` needs an **AACS 2.0 device key set** (the **253-key** set,
-**[Talk 47:18]**) and possibly a **host certificate** for drive auth (spec 04
-§4.3). These are **user-supplied** at runtime via a key database (§6.5). The repo
+**[Talk 47:18]**) and, in principle, a **host certificate** for drive auth (spec
+04 §4.3) — though the only host cert in the public material is **drive-revoked**
+and so cannot do the auth (§6.6.1). These are **user-supplied** at runtime via a
+key database (§6.5). The repo
 ships **none of them** (spec 10 §10.4). This spec explains *how such a set comes
 to exist* — so contributors understand provenance, revocation exposure (spec 03
 §3.6), and why the keys are a durable public input — without `freeblue` itself
@@ -112,7 +115,11 @@ that format is the target.
 - **Device key set file** — the v2 253-key set. It will reuse the `DK`/`PK`
   record shapes above (the talk dropped v2 keys into this same `KEYDB.cfg`
   format), with v2-sized fields (P-256 host keys are 64-byte vs v1's 20). **[?]**
-  finalize in spec 08 once a v2 set is in hand.
+  finalize in spec 08 once a v2 set is in hand. In practice device keys are
+  **MKB-version-range-scoped** — community keydb usage carries distinct device
+  keys for roughly `MKBv01–48`, `49–71`, `72–81`, and `82+` `[R doom9 t=176855]`,
+  matching the `PK` version-ranging — so a usable set must cover the target
+  disc's MKB version.
 
 ### 6.5.1 What `keydb_eng.zip` does and does not give us (per-disc keys ≠ device keys)
 
@@ -165,13 +172,62 @@ be verified the same way (spec 09 §9.10).
 |---|---|---|
 | Device key set (→ processing key) | **Yes** — 253 keys [R] | 03, 02 |
 | Processing/media key (shortcut) | **Yes** — demonstrated [R] | 03 |
-| Host certificate for drive auth | **[?]** — unclear if included | 04 §4.3 |
+| Host certificate for drive auth | **[Disc]** — a v1 host cert *is* in the keydb (`HC`), but the **drive revokes it** so the AKE fails (§6.6.1); no unrevoked or v2 (P-256) cert is in the public material | 04 §4.3, 12 §12.15 |
 | PCL key | provided, but **not needed** by freeblue (it only mattered inside the SGX/PCL wrapper) | — |
 | BD+ keys | provided but **blank/unused** on these discs [R 47:05] | — |
 
-The **host certificate** gap (§4.3) is the one open input risk: without it,
-live-drive Volume ID retrieval may be blocked, limiting `freeblue` to images
-that already captured the Volume ID (spec 04 §4.6).
+The **host certificate** gap (§4.3) is no longer a *risk* — it is a **confirmed
+wall** (§6.6.1): live-drive Volume ID retrieval is blocked because the only
+published host cert is drive-revoked. `freeblue`'s FLOSS Volume-ID coverage is
+therefore the keydb's per-disc `I` field plus images/dumps that already captured
+the Volume ID (spec 04 §4.6) — **the same boundary as `libaacs`.**
+
+### 6.6.1 The published host cert is drive-revoked — live Volume-ID read is closed [Disc]
+
+Probed directly on the LibreDrive-unlocked LG WH16NS60 against a real disc
+(branch `a1-volume-id-read`; recorded in spec 12 §12.15):
+
+- **Volume ID read** — `READ DISC STRUCTURE` (`0xAD`, AACS format `0x80`) returns
+  `CHECK CONDITION`, sense `05/6F/02` ("Copy Protection Key Exchange Failure — key
+  not established") **both before and after** a successful LibreDrive unlock. So
+  the unlock enables raw *content* reads but does **not** establish the AACS bus
+  key the drive demands for the Volume ID.
+- **Partial AKE** — `REPORT KEY` AGID allocation succeeds (the AACS channel opens
+  post-unlock), but `SEND KEY` of the keydb's host certificate is **rejected**,
+  sense `05/6F/00` (`AUTHENTICATION FAILURE`). The `SEND KEY` buffer layout is
+  byte-identical to `libaacs`'s `_mmc_send_host_cert` (read-only oracle per
+  Rule 2 — `buf[1]=0x72`, nonce@+4, cert@+24), so this is a **genuine cert
+  rejection, not a layout bug** — corroborated by plain `libaacs` reporting the
+  host cert *"revoked by your drive."* `[libaacs]`
+
+**Conclusion `[Disc]`:** LibreDrive unlocks *reads*, not AACS *auth*. A
+fully-FLOSS Volume-ID read is impossible with the only host cert in the public
+material (it is revoked, and for UHD it is also the wrong size — 160-bit vs P-256,
+§6.5.1). This closes §6.7's host-cert question: the practical FLOSS input is the
+keydb (per-disc `I`/`V`/`U`), exactly the `libaacs` boundary (spec 04 §4.3.2).
+
+**When the cert was revoked: MKBv82 `[R]`.** The doom9 community pins the public
+host cert's revocation to **MKBv82** `[doom9 t=176855]` `[doom9 t=184373]`. This
+*explains* our A1 result on an old (MKBv4) disc: a drive that has ever seen a
+v82+ disc caches that revocation in its HRL and rejects the cert thereafter,
+**regardless of the current disc's MKB version** (the "sneaky" drive-remembers-
+highest-MKB behavior, spec 04 §4.3 / §4.7). So the wall is not disc-specific —
+once a drive is "burned" by a modern disc, the cert is dead on it permanently.
+
+**The community work-around (not FLOSS-pure) — external VID oracle.** Since the
+math after the Volume ID is "just computation" (aacskeys: *given a VID, it derives
+the rest without a host cert* `[doom9 t=176855]`), the practical path is to obtain
+the VID from a tool that holds an **unrevoked** cert — MakeMKV — via its
+`discatt.dat` (DC 92 B + VID 16 B + RDK 16 B) or the libaacs `~/.aacs/vid/<discid>`
+cache `[doom9 t=184373]`. freeblue consuming such a VID is clean (it reads a file
+another tool produced; freeblue circumvents nothing) and is the realistic way to
+cover discs **not** in the keydb. RDK is per-drive and non-shareable, so this
+helps content decryption, not portable bus auth. See spec 04 §4.6 (intake modes)
+and spec 12 §12.15 (the A2 fallback). This is independently corroborated by the
+shipping closed tool XReveal, whose public decrypt ladder is
+`keydb.db > keydb.cfg > AACS Auth > cloud` `[XReveal]` — i.e. real AKE only when
+an unrevoked cert is available, else keydb / external sourcing, the exact tiers
+freeblue's `[Disc]` testing mapped out.
 
 ## 6.7 Open questions
 
@@ -179,8 +235,53 @@ that already captured the Volume ID (spec 04 §4.6).
   (§6.5) **and implemented** in `freeblue-keys` (spec 08 §8.3) — the parser's
   tests pass against the full real 182k-entry keydb. The **v2 device-key-set**
   file layout is still **[?]** until a v2 set is in hand (§6.5).
-- **[?]** Whether a usable **v2** host certificate is part of the user-sourced
-  material (§6.6, spec 04 §4.3). (The v1 keydb's host cert does **not** work for
-  UHD — it is 160-bit, not P-256.)
+- ~~Whether a usable host certificate is part of the user-sourced material~~ →
+  **resolved [Disc]** (§6.6.1): the v1 keydb's host cert is **drive-revoked** (AKE
+  `AUTHENTICATION FAILURE`) *and* wrong-size for UHD (160-bit, not P-256). No
+  unrevoked or v2 cert is in the published material, so live drive↔host
+  Volume-ID acquisition is **not achievable** from it. Residual **[?]**: only if
+  an *unrevoked* (or v2 P-256) host cert ever surfaces would this reopen.
 - **[?]** Revocation status of the published keys against current corpus discs
   (spec 03 §3.6) — purely a data question, re-checked per disc.
+
+## 6.8 External VID ingestion — `freeblue-keys::external_vid` (the A2 path)
+
+The §6.6.1 wall means a disc that is **not in the keydb** cannot get a fully-FLOSS
+Volume ID. The practical fallback (spec 04 §4.6 "External VID oracle", spec 12
+§12.15) is to ingest a VID another tool captured with an unrevoked cert. This is
+a freeblue work item; the contract:
+
+**Lookup key — disc-id = SHA-1(`Unit_Key_RO.inf`) `[E]`/`[Disc]`.**
+`external_vid::disc_id(unit_key_file)` computes the 20-byte AACS disc-id
+(`DiscId`). **Oracle-confirmed `[E]`:** libaacs sets it via
+`crypto_aacs_title_hash(data,size,disc_id)` = `gcry_md_hash_buffer(GCRY_MD_SHA1,
+ukf, len)` over the whole `AACS/Unit_Key_RO.inf` it reads `[libaacs aacs.c /
+crypto.c]`. It keys *both* the keydb entry (§6.5) and the libaacs `vid` cache, so
+freeblue can look a disc up from the disc itself
+(`freeblue-disc::Disc::unit_key_file`). SHA-1 wiring KAT-pinned (FIPS-180
+`SHA1("abc")`); preimage **`[Disc]`-confirmed** — `disc_id(real Unit_Key_RO.inf)`
+== that disc's keydb key (`disc_id_matches_keydb`, on the *The Warning* MKBv82
+fixture: `a4a2…4d1c`).
+
+**Two sources — layout now `[Disc]`-pinned:**
+- `parse_discatt(bytes)` — MakeMKV `discatt.dat`. **Pinned `[Disc]`** by
+  byte-matching the keydb Volume ID inside a real `discatt.dat`: the VID is the
+  16 bytes at **`len − 108`**, i.e. a fixed `VID(16) | DriveCert(92)` trailer
+  (the doom9 "DC|VID|RDK" `[R t=184373]` is approximate; the observed real layout
+  is this end-trailer). Residual `[?]`: cross-MakeMKV-version robustness (the
+  fixture test catches drift).
+- `read_vid_cache(cache_dir, &disc_id)` — libaacs `vid` cache. **Pinned `[E]`**
+  from the oracle: file `cache_dir/vid/<disc_id-40hex>`, content = the 16-byte
+  VID as 32 lowercase hex chars, no prefix/newline `[libaacs keydbcfg.c
+  keycache_save]` (`cache_dir` = libaacs's `<cache_home>/aacs`).
+
+Both are implemented and **green**: synthetic KATs always run; the real-data
+`[Disc]` gates (`parse_discatt_real_fixture`, `disc_id_matches_keydb`) pass under
+`$FREEBLUE_FIXTURES` (Rule 1 — no offsets guessed, all pinned to the oracle or a
+byte-match).
+
+**Security (Rule 4).** `ExternalVid` holds the 16-byte VID and **zeroizes on
+drop**; nothing is committed; the VID is read at runtime only. RDK is per-drive
+and non-shareable, so this path serves *content* decryption, not portable bus
+auth. The recovered VID feeds `Kvu = AES-G(Km, IDv)` (spec 02 §2.4.3) exactly as
+a keydb `I` field would, so the rest of the pipeline is unchanged.

@@ -17,6 +17,8 @@ To repopulate it, fetch the public sources below.
 | `sgxfail24.pdf` (SGX.Fail SoK paper) | https://www.cs.purdue.edu/homes/clg/files/sgxfail24.pdf |
 | `libaacs_crypto.c` (reference oracle) | https://code.videolan.org/videolan/libaacs/-/raw/master/src/libaacs/crypto.c |
 | `libaacs_mkb.c` | https://code.videolan.org/videolan/libaacs/-/raw/master/src/libaacs/mkb.c |
+| `libaacs_aacs.c` (oracle: disc-id, VID/MK/VUK cache flow — spec 06 §6.8) | https://code.videolan.org/videolan/libaacs/-/raw/master/src/libaacs/aacs.c |
+| `libaacs_keydbcfg.c` (oracle: `keycache` file format — spec 06 §6.8) | https://code.videolan.org/videolan/libaacs/-/raw/master/src/file/keydbcfg.c |
 | 37c3 "AACSess" talk + transcript | https://media.ccc.de/v/37c3-12296-full_aacsess_exposing_and_exploiting_aacsv2_uhd_drm_for_your_viewing_pleasure |
 | `arch-deck-extracted.txt` | `pdftotext -layout` of the 2014 AACS LA architecture draft deck |
 

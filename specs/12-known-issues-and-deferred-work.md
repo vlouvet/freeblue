@@ -238,6 +238,21 @@ Failure — key not established"**. So:
 - Note: the Media Key derives **FLOSS** from the disc MKB + a covering processing
   key (`freeblue-mkb::derive_media_key`, verify-record-confirmed on this disc),
   so the Volume ID is the *only* remaining input for a fully-FLOSS VUK → unit key.
+- **Revocation pinned to MKBv82 `[R]`.** The doom9 community dates the public host
+  cert's revocation to **MKBv82** `[doom9 t=176855, t=184373]`. This explains why
+  the A1 AKE failed even on an old MKBv4 disc: the WH16NS60 had already cached a
+  ≥v82 HRL, so it rejects the cert on *any* disc (drive-remembers-highest-MKB,
+  spec 04 §4.3/§4.7) — dead on effectively every in-service drive. (spec 06
+  §6.6.1 carries the full note + XReveal `keydb>AACS-Auth>cloud` corroboration.)
+- **A2 external-VID recipe (the practical fallback).** With no unrevoked cert,
+  take the Volume ID from a tool that has one — MakeMKV — and feed freeblue's
+  otherwise-FLOSS pipeline: read the VID from `discatt.dat` (DC 92 B + VID 16 B +
+  RDK 16 B) or the libaacs `~/.aacs/vid/<discid>` cache `[doom9 t=184373]`; then
+  freeblue's existing derivation (given a VID, no host cert needed
+  `[doom9 t=176855]`) completes the VUK → unit key. **Candidate feature:** a
+  `freeblue-keys` reader for `discatt.dat` / the `~/.aacs/vid` cache, so freeblue
+  decrypts keydb-absent discs from an externally-sourced VID. RDK is per-drive
+  (non-shareable) → serves content decryption, not portable bus auth.
 
 ---
 

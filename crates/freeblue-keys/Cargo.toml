@@ -11,3 +11,4 @@ freeblue-crypto = { workspace = true }
 zeroize = { workspace = true }
 hex = { workspace = true }
 thiserror = { workspace = true }
+sha1 = { workspace = true }

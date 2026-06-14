@@ -202,10 +202,57 @@ only bricking risk, and `freeblue` never flashes.
 ## 12.15 🟡 Auto unit-key from disc Volume ID + keydb `[?]`
 
 `freeblue decrypt` currently takes `--unit-key <hex>` (the keydb `U` field, looked
-up by hand). Turnkey resolution = read the disc's **Volume ID** (SG_IO `READ DISC
-STRUCTURE 0xAD`, AACS format — available after unlock) → match it against the keydb
-`I` fields → use that entry's `U`/`V`. `freeblue-keys` already parses the keydb;
-the missing pieces are the `0xAD` Volume-ID read and a by-Volume-ID lookup index.
+up by hand). Turnkey resolution = read the disc's **Volume ID** → derive the
+unit key (with a covering processing key, spec 03) or match the keydb `I` fields.
+
+**`READ DISC STRUCTURE 0xAD / format 0x80` (`scsi::ScsiDev::read_volume_id`,
+implemented) — and the LibreDrive-unlock-is-enough assumption is WRONG `[Disc]`.**
+Tested on the WH16NS60 + a real BD+ disc (MKBv4), both before and after a
+successful LibreDrive unlock, `0xAD/0x80` returns CHECK CONDITION with sense key
+`0x05` (ILLEGAL REQUEST), ASC/ASCQ **`0x6F/0x02` = "Copy Protection Key Exchange
+Failure — key not established"**. So:
+
+- **LibreDrive unlock ≠ AACS auth.** Unlock enables raw *content* reads
+  (`READ(10)` returns non-bus-encrypted Aligned Units, §11.4.6); it does **not**
+  establish a bus key, and the drive gates the Volume ID behind a completed
+  **AKE** (AGID alloc `0xA4`/0x00 → host cert `0xA3`/0x01 → drive cert/key
+  verify → bus key; libaacs `mmc.c`). The VID's trailing MAC is bus-key-keyed,
+  consistent with this.
+- **RESOLVED `[Disc]` — the AKE is blocked by the revoked host cert, even
+  post-unlock.** Partial-AKE probe (`partial_ake_probe`) on the unlocked
+  WH16NS60: `REPORT KEY` AGID alloc **succeeds** (agid=0, AACS channel open), but
+  `SEND KEY` of the keydb host cert is **REJECTED** with sense `0x05`, ASC/ASCQ
+  **`0x6F/0x00` = AUTHENTICATION FAILURE**. The SEND KEY data layout is
+  byte-identical to libaacs `_mmc_send_host_cert` (buf[1]=0x72, nonce@+4,
+  cert@+24), so it's a genuine cert rejection — corroborated by the plain
+  libaacs path already reporting cert id `0xffff800001c1` "revoked by your
+  drive". **LibreDrive bypasses read restrictions, NOT AACS authentication.**
+- **Consequence:** a fully-FLOSS Volume-ID read is impossible on this hardware
+  with the only available (revoked) host cert — a fundamental AACS barrier, not a
+  freeblue gap (libaacs has the same wall). freeblue's FLOSS coverage therefore
+  equals the **keydb** (discs with `V`/`U` present need no VID read). Discs *not*
+  in the keydb — even ones whose Media Key we can derive FLOSS — cannot complete
+  the VUK without the Volume ID, and must fall back to a supplied `--unit-key`/VUK
+  or an external key oracle (A2 / makemkvcon). An unrevoked host cert would lift
+  this, but none exists in the FLOSS world.
+- Note: the Media Key derives **FLOSS** from the disc MKB + a covering processing
+  key (`freeblue-mkb::derive_media_key`, verify-record-confirmed on this disc),
+  so the Volume ID is the *only* remaining input for a fully-FLOSS VUK → unit key.
+- **Revocation pinned to MKBv82 `[R]`.** The doom9 community dates the public host
+  cert's revocation to **MKBv82** `[doom9 t=176855, t=184373]`. This explains why
+  the A1 AKE failed even on an old MKBv4 disc: the WH16NS60 had already cached a
+  ≥v82 HRL, so it rejects the cert on *any* disc (drive-remembers-highest-MKB,
+  spec 04 §4.3/§4.7) — dead on effectively every in-service drive. (spec 06
+  §6.6.1 carries the full note + XReveal `keydb>AACS-Auth>cloud` corroboration.)
+- **A2 external-VID recipe (the practical fallback).** With no unrevoked cert,
+  take the Volume ID from a tool that has one — MakeMKV — and feed freeblue's
+  otherwise-FLOSS pipeline: read the VID from `discatt.dat` (DC 92 B + VID 16 B +
+  RDK 16 B) or the libaacs `~/.aacs/vid/<discid>` cache `[doom9 t=184373]`; then
+  freeblue's existing derivation (given a VID, no host cert needed
+  `[doom9 t=176855]`) completes the VUK → unit key. **Candidate feature:** a
+  `freeblue-keys` reader for `discatt.dat` / the `~/.aacs/vid` cache, so freeblue
+  decrypts keydb-absent discs from an externally-sourced VID. RDK is per-drive
+  (non-shareable) → serves content decryption, not portable bus auth.
 
 ---
 

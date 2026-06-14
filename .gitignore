@@ -33,6 +33,8 @@ vuk_*.txt
 # Referenced via $FREEBLUE_FIXTURES; never in the repo.
 /fixtures/*
 !/fixtures/README.md
+# In-repo fixtures dir (key/VID/structure-bearing — local only, never commit)
+/FREEBLUE_FIXTURES/
 
 # ── Editor / OS ─────────────────────────────────────────────────────
 .vscode/

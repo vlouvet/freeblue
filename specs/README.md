@@ -98,6 +98,20 @@ turned most of specs 02–05's `[?]` tags into cited `[E]`):
 > baseline; the v2-specific deltas (spec 02 §2.5) still need byte-match against
 > a real disc + MakeMKV (spec 07/09).
 
+**Corroborating community references** (public; behavioral/architectural facts
+only — no code copied, cf. clean-room discipline in CLAUDE.md):
+
+- **`[doom9 t=176855]`** — doom9 thread *forum.doom9.org/showthread.php?t=176855*
+  (KEYDB.cfg maintenance): pins the public host-cert revocation to **MKBv82**, the
+  device-key MKB-version ranges, and the "given a VID, aacskeys needs no host cert"
+  fact. Cited in specs 06 §6.5/§6.6.1, 12 §12.15.
+- **`[doom9 t=184373]`** — doom9 thread *…?t=184373* (extracting VID/RDK from
+  MakeMKV): the `discatt.dat` (DC 92 B + VID 16 B + RDK 16 B) / `~/.aacs/vid/`
+  cache recipe — the A2 external-VID path. Cited in specs 04 §4.6, 06 §6.6.1, 12 §12.15.
+- **`[XReveal]`** — xreveal.com public docs: the shipping decrypt ladder
+  `keydb.db > keydb.cfg > AACS Auth > cloud` and AACS-revocation explanation —
+  independent corroboration of the revoked-cert wall (spec 06 §6.6.1).
+
 **Real AACS 2.0 fixtures** (user-provided — these moved several `[?]`/`[E]` tags
 to **[Disc]**-verified; **git-ignored**, contain keys/structures per spec 10):
 
@@ -134,6 +148,7 @@ each spec is and whether its code has landed.
 | 10 | [10-legal-and-licensing.md](10-legal-and-licensing.md) | Clean-room discipline, DMCA / interoperability posture, no-keys-in-repo policy, license | 📄 Reference |
 | 11 | [11-read-path-and-bus-encryption.md](11-read-path-and-bus-encryption.md) | The read layer: bus encryption (BEE), the `UnitReader` trait, LibreDrive RE; §11.4.5 byte-vs-MakeMKV verification of the capture+decrypt path | ✅ Verified (non-BEE) / 🚧 BEE |
 | 12 | [12-known-issues-and-deferred-work.md](12-known-issues-and-deferred-work.md) | Known issues, open bugs, deferred work, and validation traps — the live register | 🚧 Living |
+| 14 | [14-virtual-decrypted-disc.md](14-virtual-decrypted-disc.md) | Userspace decrypt-on-read mount (FUSE/NBD): present the whole disc decrypted to any unmodified tool | 📋 Design |
 
 ## One-paragraph summary
 

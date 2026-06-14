@@ -16,6 +16,9 @@ use freeblue_crypto::Block;
 use std::collections::HashMap;
 use zeroize::Zeroize;
 
+/// External Volume-ID ingestion (`discatt.dat` / libaacs `vid` cache), spec 06 §6.8.
+pub mod external_vid;
+
 /// 20-byte AACS disc identifier (the key of a per-disc entry).
 pub type DiscId = [u8; 20];
 

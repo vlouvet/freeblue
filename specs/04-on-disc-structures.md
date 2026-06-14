@@ -225,12 +225,16 @@ Two intake modes, with different `[?]` exposure:
 
 | Mode | MKB / Unit Key File | Volume ID | Notes |
 |---|---|---|---|
-| **Live UHD drive** | read directly | via drive↔host auth (§4.3) | needs a host cert; full pipeline |
+| **Live UHD drive** | read directly | via drive↔host auth (§4.3) | needs an **unrevoked** host cert — none is public (revoked at MKBv82, spec 06 §6.6.1); the FLOSS live path is blocked |
 | **Pre-made image / folder** | read directly | **only if captured** in the image | many tools don't store the gated Volume ID; pipeline may stall at `Kvu` |
+| **External VID oracle** | read directly (image/disc) | from `discatt.dat` or the libaacs `~/.aacs/vid/<discid>` cache, written by a tool holding an unrevoked cert (e.g. MakeMKV) | keydb-independent; the practical path for discs not in the keydb once the FLOSS host cert is revoked (spec 06 §6.6.1) `[R]` |
 
 The corpus (spec 09) should include at least one **live-drive** capture so the
 §4.3 auth path is exercised, and one **image** capture (with Volume ID recorded
-out-of-band) so the crypto path can be developed without a drive present.
+out-of-band) so the crypto path can be developed without a drive present. The
+**External VID oracle** mode is the realistic third path: a VID captured by
+MakeMKV (`discatt.dat`, or its libaacs `~/.aacs/vid/` cache) feeds freeblue's
+otherwise-FLOSS pipeline — documented by the doom9 community `[doom9 t=184373]`.
 
 ## 4.7 Content certificate and revocation lists
 

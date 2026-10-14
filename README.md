@@ -1,111 +1,222 @@
 # freeblue
 
-A clean-room, **all-original Rust** library that decrypts **AACS 2.0** (Ultra HD
-/ 4K Blu-ray) — the gap the FLOSS stack (`libaacs`/`libbluray`) leaves open. It
-turns an encrypted UHD/BD volume plus user-supplied key material into **plaintext
-M2TS**, so a remuxer like
-[`rippidydoodah`](https://github.com/vlouvet/rippidydoodah) can produce a
-playable `.mkv`.
+A clean-room, all-original Rust library and command-line tool that decrypts
+**AACS 2.0** (Ultra HD / 4K Blu-ray) content into **plaintext M2TS**. It covers
+the step the FLOSS Blu-ray stack (`libaacs` / `libbluray`) does not: `libaacs`
+implements AACS v1 only.
 
-> **Status:** **freeblue reads and decrypts a real UHD/AACS 2.0 disc on its own —
-> no MakeMKV.** It replays the (static, read-only) LibreDrive unlock over `SG_IO`,
-> reads raw sectors, and decrypts them: verified on the **cold** TURBO UHD disc,
-> 8/8 Aligned Units at 32/32 TS-sync (video PID `0x1011`). v1 output is
-> **byte-identical to MakeMKV**. Real code, 7 crates, 36 passing tests. Remaining
-> work is glue: resolving a clip's on-disc extent from UDF/BDMV (today the caller
-> passes it) and a CLI. See [`specs/README.md`](specs/README.md) and the
-> known-issues register in
-> [`specs/12-known-issues-and-deferred-work.md`](specs/12-known-issues-and-deferred-work.md).
+freeblue takes an encrypted disc (or a copy of its files) plus key material you
+supply, and produces the decrypted transport stream. Turning that stream into a
+playable `.mkv` is the job of a remuxer such as `rdd`
+([see below](#relationship-to-rdd)).
 
-## The pipeline (every step proven on a real disc)
+Background and design rationale: [`overview.md`](overview.md). The
+specification series in [`specs/`](specs/README.md) is the source of truth.
 
-```
-processing key ──[MKB 0x04/0x05 + verify]──► Media Key   ✅ derived == keydb M        (GoT, BD)
-Media Key      ──[Kvu = AES-G(Km, IDv)]────► VUK         ✅ AES-G(M,I)==V              (GoT + UHD)
-VUK            ──[Kcu = AES-128D(Kvu, ·)]──► Unit Key     ✅ in Unit_Key_RO.inf         (UHD)
-Unit Key+seed  ──[AES-128E⊕seed, AES-CBC]──► plaintext    ✅ byte-identical to MakeMKV  (GoT, live SCSI capture)
-                                                          ✅ 32/32, video PID 0x1011    (TURBO UHD/AACS 2.0, live)
-```
+## What it is, and what it is not
 
-AACS 2.0 is, cryptographically, AACS v1 with SHA-256/P-256 and the player keys
-formerly hidden in SGX. That thesis is now proven on **real v2/UHD content**: a
-TURBO UHD Aligned Unit captured live off the bus decrypts to valid MPEG-TS (BDAV
-video PID `0x1011`); GoT v1 content decrypts byte-identical to MakeMKV. **No bus
-decryption is needed** — MakeMKV's **LibreDrive read returns raw disc sectors (no
-bus-encryption layer), even on a BEE/UHD disc**; bus encryption only afflicts plain
-OS reads (spec 11 §11.4.6). See [`specs/`](specs/) for the cited derivation.
+It is:
 
-## Layout
+- a Rust workspace of small crates that implement the AACS key ladder and
+  Aligned-Unit content decryption, each written from public AACS
+  specifications, NIST/RFC standards and published research;
+- a `freeblue` CLI that can read a protected disc directly from a
+  LibreDrive-capable drive on Linux and write plaintext M2TS;
+- a written, cited specification of AACS 2.0 decryption (`specs/`).
 
-```
-specs/          The specification series (00–12) — the source of truth.
-crates/
-  freeblue-crypto    AES-128, AES-G, AES-G3                  (✅ implemented + KATs)
-  freeblue-mkb       MKB parse + media-key derivation        (✅ implemented + KATs)
-  freeblue-content   Aligned-Unit decrypt + bus_decrypt_unit (✅ implemented + KATs)
-  freeblue-keys      KEYDB.cfg parser                        (✅ implemented + tests)
-  freeblue-disc      /AACS/ structures + raw m2ts read       (✅ implemented + tests)
-  freeblue-read      UnitReader: PlainUdfReader + LibreDrive  (✅ LibreDrive unlock via SG_IO — no MakeMKV)
-  freeblue-core      orchestration → plaintext M2TS          (✅ implemented + tests)
-  freeblue-cli       `freeblue` unlock / decrypt / decrypt-disc (✅ standalone rip — no MakeMKV)
-res/            Reference material (git-ignored) — see res/README.md.
-fixtures/       Local KAT fixtures w/ real keys (git-ignored) — see fixtures/README.md.
-overview.md     One-page project intro.
-```
+It is not:
 
-## Build & test
+- a key source. It ships no keys of any kind; you supply them at runtime.
+- a ripper, remuxer or player. Output is plaintext M2TS, nothing more.
+- a tool for extracting keys from players, attacking SGX, or defeating AACS 2.1
+  traitor tracing, BD+, BD-J or Cinavia (spec 00 §0.3).
+- a firmware tool. It never writes to a drive or flashes firmware.
 
-Requires Rust 1.75 (pinned in `rust-toolchain.toml`; `cargo` is rustup-managed at
-`~/.cargo/bin` — ensure it's on `PATH`):
+## Status
+
+Verified on real discs (details and evidence in the cited specs):
+
+| Step | Result | Where |
+|------|--------|-------|
+| Processing key + MKB → Media Key | derived key matches the key database, BD (MKBv63) | spec 03 §3.4.2, spec 09 §9.10.1 |
+| Media Key + Volume ID → Volume Unique Key | matches the key database, BD and UHD (MKBv82) | spec 09 §9.10.1 |
+| Volume Unique Key → CPS Unit Key | wrapped key matches `Unit_Key_RO.inf`, UHD | spec 04 §4.5, spec 09 §9.10.1 |
+| Content decrypt, AACS v1 (non-BEE BD) | output equals MakeMKV's decrypted m2ts in 6112 of every 6144 bytes; the rest is one header byte per packet (see [Limitations](#limitations)) | spec 11 §11.4.5 |
+| Content decrypt, AACS 2.0 (UHD) | valid BDAV transport stream: TS sync, video PID `0x1011`, monotonic arrival timestamps, continuity counters | spec 11 §11.4.6 |
+| Standalone read, no MakeMKV | cold drive → `freeblue unlock` → mount → `freeblue decrypt` of a UHD main title: 1024 units, 100% TS sync | spec 12 §12.10, §12.13 |
+
+What works today:
+
+- **Standalone disc reading.** On a supported drive, freeblue replays a static,
+  read-only LibreDrive unlock sequence (`READ BUFFER` commands over Linux
+  `SG_IO`). After that the drive returns raw, content-encrypted sectors with no
+  bus-encryption layer, so the disc can be mounted normally and its `m2ts` files
+  decrypted. MakeMKV is not involved at any point (spec 11 §11.4.6–§11.4.7).
+- **CLI:** `freeblue unlock`, `freeblue decrypt`, `freeblue decrypt-disc`.
+- **Library:** `KEYDB.cfg` parsing, MKB media-key derivation from a processing
+  key, Volume Unique Key and Unit Key derivation, streaming Aligned-Unit
+  decryption, and reading a Volume ID produced by another tool (MakeMKV's
+  `discatt.dat`, or the libaacs `vid` cache; spec 06 §6.8). The CLI does not
+  use the last two yet.
+
+## Limitations
+
+These are open items, tracked in
+[spec 12](specs/12-known-issues-and-deferred-work.md):
+
+- **One drive model.** Only one unlock table has been captured, for the LG
+  WH16NS60 (spec 12 §12.14). Other LibreDrive-capable drives are untested and
+  likely need their own table. A drive that fails the LibreDrive handshake is
+  refused. Without the unlock, a UHD disc returns bus-encrypted data that does
+  not decrypt.
+- **The unit key is passed by hand.** The CLI needs `--unit-key`. Automatic
+  resolution from the disc's Volume ID is not implemented (spec 12 §12.15).
+  freeblue cannot read the Volume ID itself: the drive releases it only after
+  AACS drive–host authentication, and the tested drive rejects the only publicly
+  available host certificate as revoked, with or without the LibreDrive unlock.
+  A Volume ID produced by another tool can be read through the library.
+- **Single CPS unit only.** Every disc tested has one CPS unit. Mapping clips
+  to keys on multi-unit discs is unimplemented (spec 12 §12.8).
+- **No device-key path.** There is no parser for a device-key-set file, and the
+  subset-difference walk from device keys to a processing key has not been run
+  end to end (spec 12 §12.7). Decryption needs a unit key, a Volume Unique
+  Key, or a processing key plus the disc's Volume ID, all from key material you
+  provide; the CLI accepts only a unit key.
+- **Copy-permission bits.** freeblue passes byte 0 of each 192-byte packet (the
+  TP_extra_header copy-permission indicator) through as it is on the disc;
+  MakeMKV clears its top two bits. Payload is identical. Whether to mask them is
+  undecided (spec 12 §12.4).
+- **Linux only for drive access.** `unlock` and `decrypt-disc` use `SG_IO`.
+  `decrypt` (file input) has no OS-specific code.
+- **No title selection.** You pick the `m2ts` (or the LBA extent) to decrypt.
+  There is no playlist parsing and no `verify` subcommand yet.
+
+## Build
+
+Requirements:
+
+- Rust 1.75.0, pinned in `rust-toolchain.toml` (rustup installs it on the
+  first `cargo` call, with `rustfmt` and `clippy`).
+- No C libraries. The only platform dependency is the `libc` crate, used on
+  Linux for `SG_IO`.
 
 ```sh
-cargo build
-cargo test            # unit KATs (deterministic, no secrets) — 36 pass, 4 ignored
-cargo test -- --ignored   # KATs needing $FREEBLUE_FIXTURES (real disc data)
+cargo build --release          # binary: target/release/freeblue
+cargo test                     # synthetic known-answer tests, no secrets needed
 ```
 
-The implemented crates carry deterministic KATs (FIPS-197 AES, AES-G/AES-G3
-vectors, the content block-key vector, the bus-decrypt round-trip) that encode the
-`[Disc]`-verified algorithms and pass on `cargo test`. The `#[ignore]`d KATs are
-the real-disc byte-matches; they load encrypted units + keys from
-`$FREEBLUE_FIXTURES` and never ship in the repo (Rule 4).
+Privileges: `unlock` and `decrypt-disc` send SCSI commands through `SG_IO` on
+the drive's device node (opened read-only). They have been tested as root
+(`sudo`). Whether a non-root user with read access to the device is enough
+depends on the kernel's SG_IO command filtering and has not been checked.
+Mounting the disc needs root as usual. `decrypt` on a file needs only read
+access to that file.
 
-## Decrypt a disc (no MakeMKV)
+## Usage
 
-On a LibreDrive-capable drive (e.g. LG WH16NS60), `freeblue` reads and decrypts a
-protected UHD/BD disc itself. SG_IO + mount need root.
+Running `freeblue` with no arguments, `--help`, or an unknown subcommand
+prints this usage text and exits with status 2:
+
+```text
+freeblue unlock <device>
+freeblue decrypt <m2ts> --unit-key <hex32> -o <out.m2ts>
+freeblue decrypt-disc <device> --start-lba N --num-units M --unit-key <hex32> -o <out>
+```
+
+`--unit-key` is the 16-byte CPS unit key for the disc, as 32 hex digits
+(an optional `0x` prefix is accepted). You supply it; freeblue does not
+include or fetch keys.
+
+Decrypt a title from a mounted disc:
 
 ```sh
-# 1. Put the drive in raw-read mode (replays the read-only LibreDrive unlock).
+# 1. Switch the drive to raw-read mode (read-only LibreDrive unlock).
 sudo freeblue unlock /dev/sr0
 
-# 2. Mount the now-raw disc and decrypt an m2ts to plaintext M2TS.
+# 2. Mount the disc read-only and decrypt one clip.
 sudo mount -t udf -o ro /dev/sr0 /mnt/disc
-sudo freeblue decrypt /mnt/disc/BDMV/STREAM/00002.m2ts \
-     --unit-key <32-hex-CPS-unit-key> -o title.m2ts      # → 32/32 TS-sync
-
-# …or read an extent straight off the drive (no mount):
-sudo freeblue decrypt-disc /dev/sr0 --start-lba N --num-units M \
-     --unit-key <hex> -o title.m2ts
+freeblue decrypt /mnt/disc/BDMV/STREAM/00002.m2ts \
+    --unit-key "$UNIT_KEY" -o title.m2ts
 ```
 
-The CPS unit key is the keydb `U` field for the disc (auto-resolution from the
-disc's Volume ID is on the roadmap — spec 12 §12.15). `freeblue` only ever issues
-`READ BUFFER`/`READ(10)` — it never flashes firmware, so it cannot brick a drive;
-a non-LibreDrive drive simply reports `not LibreDrive-capable`.
+Or read an extent straight from the drive without mounting. `decrypt-disc`
+runs the unlock itself, then reads `M` Aligned Units (3 sectors each) starting
+at LBA `N`. `N` must be on an Aligned-Unit boundary, such as the first sector
+of an `m2ts` clip:
 
-## Working agreement
+```sh
+sudo freeblue decrypt-disc /dev/sr0 --start-lba N --num-units M \
+    --unit-key "$UNIT_KEY" -o title.m2ts
+```
 
-Read [`CLAUDE.md`](CLAUDE.md) before contributing: **TDD-always**, **spec-first**,
-**no keys/media in the repo, ever**. `freeblue` is built **clean-room** from
-public AACS specifications and NIST/RFC standards plus public 37c3 research —
-never from MakeMKV/CyberLink/`libaacs` source (which is consulted, if at all, only
-as a read-only behavioral oracle; no code is copied).
+`decrypt` accepts any content-encrypted `m2ts` file, for example one copied
+from the disc while the drive was unlocked.
+
+When it finishes, freeblue prints the number of units written and a TS-sync
+score for the first unit (`32/32` means every packet header lined up). A low
+score means the wrong key or still-bus-encrypted input. A high score alone is
+not proof of a correct decrypt (spec 12 §12.6).
+
+## Crates
+
+```
+crates/
+  freeblue-crypto    AES-128, AES-G, AES-G3
+  freeblue-mkb       MKB parsing, processing key → media key
+  freeblue-content   Aligned-Unit content decryption; bus_decrypt_unit (unused by the read path)
+  freeblue-keys      KEYDB.cfg parser; disc ID; external Volume ID (discatt.dat, libaacs cache)
+  freeblue-disc      /AACS/ structures from a folder copy; encrypted unit keys
+  freeblue-read      UnitReader trait; PlainUdfReader (files); LibreDriveReader (SG_IO, Linux)
+  freeblue-core      unit-key resolution and streaming decrypt_clip → plaintext M2TS
+  freeblue-cli       the `freeblue` binary
+```
+
+The API and module design are in [spec 08](specs/08-reference-implementation.md).
+
+## Tests
+
+`cargo test` runs deterministic known-answer tests built from public vectors
+(FIPS-197 AES, AES-G/AES-G3, content block-key, a bus-decrypt round trip) and
+synthetic data. They need no keys or media. CI runs `cargo fmt --check`,
+`cargo clippy -D warnings` and `cargo test` on every push to `main`.
+
+Tests that need real disc data are `#[ignore]`d and read files from the
+directory named by `$FREEBLUE_FIXTURES`; see
+[`fixtures/README.md`](fixtures/README.md). Run them with
+`cargo test -- --ignored`. Some of them are still placeholders: the real-disc
+results recorded in the specs were measured outside the test suite.
+
+## Relationship to rdd
+
+`rdd` (rippidydoodah) is a sibling project that remuxes decrypted Blu-ray
+streams into Matroska. On its own it treats UHD / AACS 2.0 as out of scope.
+rdd integrates freeblue as an optional decryption backend behind a `freeblue`
+Cargo feature, off by default; with it enabled, rdd reads raw `m2ts` clips,
+decrypts them through freeblue, and feeds the plaintext M2TS to its existing
+demux and remux pipeline. rdd depends on this repository's `main` branch as a
+git dependency.
+
+## Specification
+
+[`specs/README.md`](specs/README.md) indexes the series, gives a reading order,
+and explains the confidence tags (`[E]` established, `[Disc]` verified on a
+real disc, `[?]` open). Every behavioural change updates the relevant spec in
+the same commit.
+
+## Contributing
+
+Read [`CLAUDE.md`](CLAUDE.md) first. The rules in short: test first, spec
+first, and **no keys or media in the repository, ever**. freeblue is built
+clean-room from public AACS specifications, NIST/RFC standards and published
+37c3 research. `libaacs` may be read as a behavioural reference; no code is
+copied from it or from any proprietary product.
 
 ## License
 
-GPL-3.0-or-later — full text in [`LICENSE`](LICENSE). Licensing rationale and the
-spec/docs vs. code split: [`specs/10-legal-and-licensing.md`](specs/10-legal-and-licensing.md).
+The code is GPL-3.0-or-later; the full text is in [`LICENSE`](LICENSE). A
+separate license for the specification text (CC BY-SA 4.0) has been proposed
+but not confirmed. Rationale:
+[`specs/10-legal-and-licensing.md`](specs/10-legal-and-licensing.md) §10.5.
 
 ## Legal & disclaimer
 
@@ -117,11 +228,14 @@ interoperability software, not a piracy tool.
 - **No keys, tables, or media are included.** freeblue ships **no** device keys,
   processing keys, media keys, `KEYDB.cfg`, host certificates, Volume IDs, unit
   keys, or any copyrighted content — encrypted or decrypted. All key material is
-  supplied by you at runtime and lives only in git-ignored `fixtures/` (Rule 4).
+  supplied by you at runtime and is never committed (CLAUDE.md Rule 4).
 - **Clean-room originality.** Cryptographic constants and protocol facts come from
   public AACS specs, NIST/RFC standards, and published 37c3 research, each cited
   inline. Constants/protocol facts are not copyrightable; no third-party code is
   copied (spec 08 §8.6, spec 10 §10.2).
+- **No new key extraction.** freeblue does not attack SGX or extract keys from
+  any player; that work is published independent research which the specs cite
+  (spec 10 §10.3).
 - **Decryption / circumvention may be regulated where you live.** Bypassing copy
   protection on optical media is restricted or unlawful in some jurisdictions
   (e.g. the DMCA in the United States, the EUCD in parts of the EU), even for a

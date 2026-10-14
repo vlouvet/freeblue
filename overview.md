@@ -1,66 +1,65 @@
-# freeblue
+# freeblue — overview
 
-Reverse-engineer MakeMKV and a known-working UHD Blu-ray rip to create a FLOSS
-specification of **AACS 2.0** decryption — then a clean-room implementation that
-matches MakeMKV byte-for-byte. Use public documentation, Ghidra, and black-box
-behavioral analysis to get there.
+Background and design rationale. For what works today, how to build it and how
+to use it, see the [README](README.md).
 
-This is the sister project to [`rippidydoodah`](../rippidydoodah/), which remuxes
-an *already-decrypted* stream and explicitly defers UHD/AACS 2.0 as a non-goal.
-`freeblue` is the work that closes that gap.
+## Why it exists
 
-## Start here
+The FLOSS optical-disc stack stops at Ultra HD Blu-ray. `libdvdcss` handles
+DVD, and `libaacs` / `libbdplus` handle ordinary Blu-ray, but `libaacs` has no
+AACS 2.0 support. Until 2023 the AACS 2.0 player keys existed only inside
+Intel SGX enclaves, and the AACS 2.0 specification itself is under NDA.
 
-→ **[specs/README.md](specs/README.md)** — the specification series (00–12) and
-reading order. The specs are the deliverable; the implementation is downstream.
+freeblue set out to write a FLOSS, clean-room specification of AACS 2.0
+decryption, precise enough to implement from, and then to implement it in
+original Rust. It is a sibling of the `rdd` (rippidydoodah) remuxer, which
+remuxes already-decrypted Blu-ray streams and could not handle UHD discs on its
+own.
 
-Core technical path: [02 key hierarchy](specs/02-key-hierarchy-and-crypto-primitives.md)
-→ [03 MKB & revocation](specs/03-media-key-block-and-revocation.md)
-→ [04 on-disc structures](specs/04-on-disc-structures.md)
-→ [05 content decryption](specs/05-content-decryption-pipeline.md).
-How we pin the unknowns: [07 MakeMKV RE](specs/07-makemkv-reverse-engineering.md)
-+ [09 validation](specs/09-validation-and-test-vectors.md).
+## The thesis
 
-## The one-line thesis
+AACS 2.0 is, cryptographically, AACS v1 with SHA-1 replaced by SHA-256 and the
+v1 elliptic curve replaced by NIST P-256, with the player's keys moved into an
+SGX enclave ([Talk 49:43]). The SGX wrapper, not the cipher, was the barrier.
+The SGX.fail researchers broke it and published their results in the 37c3
+talk "AACSess" and the SGX.Fail paper. freeblue does not touch SGX or extract
+keys. It documents and implements the v1-shaped math that consumes key
+material:
 
-AACS 2.0 is **AACSv1 with SHA-1→SHA-256 and a custom curve→P-256**, plus the
-player's keys hidden in an Intel SGX enclave (37c3 talk, [49:43]). The SGX
-wrapper — not the cipher — was the real barrier, and it was already broken and
-the **253-key device set published** by the SGX.fail team. So `freeblue` never
-touches SGX: it consumes the public keys and specifies the v1-shaped math that
-turns an encrypted UHD disc into plaintext M2TS.
+```
+processing key ─[MKB]──────────────────► Media Key
+Media Key ──────[AES-G with Volume ID]─► Volume Unique Key
+Volume Unique Key ─[AES-128 decrypt]───► CPS Unit Key
+CPS Unit Key ───[per-unit AES-128-CBC]─► plaintext M2TS (6144-byte Aligned Units)
+```
 
-## Known resources
+## How correctness is established
 
-In [`res/`](res/) (cited throughout the specs):
+Every claim in the specs carries a confidence tag: `[E]` established from a
+public source, `[R]` reported in the talk, `[Disc]` reproduced byte for byte on
+a real disc, `[?]` open (spec 00 §0.6). A tag is only raised with the citation
+or byte match that earns it.
 
-- **`talk-transcript.txt`** — 37c3 (2023) talk *"AACSess: Exposing and
-  exploiting AACSv2 UHD DRM for your viewing pleasure"* (SGX.fail team). The
-  authoritative public account. Cited as `[Talk <timestamp>]`.
-- **`37c3-12296-…_sd.mp4`** / **`…_opus.opus`** — the talk's video and audio.
-- **`AACS 2.0 Architecture elements draft 02_23_2014.pptx.pdf`** — circulated
-  AACS LA architecture deck (2014 draft). Cited as `[Arch]`. Extracted text:
-  `res/arch-deck-extracted.txt`.
+The original plan was to pin unknowns by comparing against MakeMKV's output and,
+if necessary, static analysis. In practice the decryption core was settled by
+the public AACS books, the `libaacs` source as a read-only reference, and
+byte matches on real discs; static analysis was not needed for it (spec 07
+§7.7). MakeMKV's decrypted output remained useful as an independent oracle for
+the v1 content byte match (spec 11 §11.4.5).
 
-To obtain and cite (not recall) — see [spec 02 §2.1](specs/02-key-hierarchy-and-crypto-primitives.md):
+The read path was the last piece. On a LibreDrive-capable drive, a static
+read-only command sequence switches the drive to returning raw sectors, without
+the bus-encryption layer, and freeblue replays that sequence itself (spec 11
+§11.4.6–§11.4.7).
 
-- AACS LA **"Common Cryptographic Elements"** book — the v1 crypto v2 reuses.
-- **`libaacs`** source (VideoLAN) — the FLOSS v1 clean-room oracle.
-- The published **SGX.fail** paper (`sgx.fail`).
+## Where to read next
 
-## Status
-
-Specs 00–12 complete; the **decrypt core is verified on real discs through live
-SCSI captures** — v1 (GoT) **byte-identical to MakeMKV** (spec 11 §11.4.5) and the
-**first real UHD/AACS 2.0 content** (TURBO) decrypted to valid TS, video PID
-`0x1011` (spec 11 §11.4.6). The Rust workspace is built out — `freeblue-crypto`,
-`-mkb`, `-content`, `-keys`, `-disc`, `-read`, `-core` are implemented (36 passing
-tests); only `-cli` is a stub. **freeblue now reads protected discs on its own — no
-MakeMKV:** the LibreDrive "unlock" is a static, read-only `READ BUFFER` (`0x3C`)
-sequence that `freeblue-read` replays over `SG_IO`, flipping the drive to raw mode;
-then `content_decrypt` (LibreDrive returns no bus layer, spec 11 §11.4.6–7).
-Verified on the **cold** TURBO UHD disc: 8/8 Aligned Units decrypt 32/32, MakeMKV
-nowhere in the loop. Remaining glue is **clip extent resolution** (UDF/BDMV → LBA)
-and a CLI. Open items live in [spec 12](specs/12-known-issues-and-deferred-work.md). See the
-[confidence model](specs/00-overview.md) (spec 00 §0.6) and the
-[roadmap](specs/README.md).
+- [`specs/README.md`](specs/README.md): index and reading order.
+- Core path: [02 key hierarchy](specs/02-key-hierarchy-and-crypto-primitives.md)
+  → [03 MKB and revocation](specs/03-media-key-block-and-revocation.md)
+  → [04 on-disc structures](specs/04-on-disc-structures.md)
+  → [05 content decryption](specs/05-content-decryption-pipeline.md).
+- Read path: [11 read path and bus encryption](specs/11-read-path-and-bus-encryption.md).
+- Open items: [12 known issues and deferred work](specs/12-known-issues-and-deferred-work.md).
+- Legal posture: [10 legal and licensing](specs/10-legal-and-licensing.md).
+- Reference material the specs cite: [`res/README.md`](res/README.md).

@@ -35,15 +35,17 @@ PID `0x1011`** — spec 11 §11.4.6, the **first real AACS 2.0 content Aligned U
 decrypted**. Together these `[Disc]`-validate the capture path, Aligned-Unit
 alignment, keydb unit-key lookup, and the decrypt core against independent oracles.
 
-**Production code exists and passes** — 7 implemented crates, 36 deterministic KATs
-+ 4 fixture-gated real-disc tests (spec 08, spec 09). **The decrypt half is done
+**Production code exists and passes** — 8 crates with deterministic KATs plus
+fixture-gated real-disc tests (spec 08, spec 09). **The decrypt half is done
 (v1 and UHD), and freeblue now reads protected discs on its own — no MakeMKV.** Two
 results landed: (1) **MakeMKV's LibreDrive read returns raw disc sectors with no
 bus-encryption layer, even on BEE/UHD** (spec 11 §11.4.6); and (2) **the LibreDrive
 "unlock" is a static, read-only `READ BUFFER` (`0x3C`) sequence freeblue replays
 itself over `SG_IO`** (spec 11 §11.4.7) — verified on the cold TURBO UHD disc, 8/8
-Aligned Units at 32/32. The remaining work is **glue**: resolving a clip's on-disc
-extent from UDF/BDMV (spec 12 §12.13) and the CLI (§12.10). Open items in **spec 12**.
+Aligned Units at 32/32. Extent resolution (spec 12 §12.13) and the CLI (§12.10) are
+resolved: `freeblue unlock` → mount → `freeblue decrypt` rips a UHD title standalone.
+Open items (auto unit-key, per-drive unlock tables, multi-CPS-unit, device keys) in
+**spec 12**.
 
 ## What this is and is not
 
@@ -144,7 +146,7 @@ each spec is and whether its code has landed.
 | 06 | [06-key-sources-and-sgx-provisioning.md](06-key-sources-and-sgx-provisioning.md) | SGX/EPID key provisioning (background); **KEYDB.cfg format (verified)** | 📄 Reference |
 | 07 | [07-makemkv-reverse-engineering.md](07-makemkv-reverse-engineering.md) | RE methodology: Ghidra targets, MakeMKV oracle, byte-match protocol | 📋 Design |
 | 08 | [08-reference-implementation.md](08-reference-implementation.md) | Proposed clean-room implementation: module layout, libbluray/libaacs relationship, language | 📋 Design |
-| 09 | [09-validation-and-test-vectors.md](09-validation-and-test-vectors.md) | KATs (**35 green**, 4 fixture-gated), the MakeMKV golden-diff oracle (now realized — spec 11 §11.4.5), the disc corpus | 📋 Design |
+| 09 | [09-validation-and-test-vectors.md](09-validation-and-test-vectors.md) | KATs (synthetic + fixture-gated), the MakeMKV golden-diff oracle (now realized — spec 11 §11.4.5), the disc corpus | 📋 Design |
 | 10 | [10-legal-and-licensing.md](10-legal-and-licensing.md) | Clean-room discipline, DMCA / interoperability posture, no-keys-in-repo policy, license | 📄 Reference |
 | 11 | [11-read-path-and-bus-encryption.md](11-read-path-and-bus-encryption.md) | The read layer: bus encryption (BEE), the `UnitReader` trait, LibreDrive RE; §11.4.5 byte-vs-MakeMKV verification of the capture+decrypt path | ✅ Verified (non-BEE) / 🚧 BEE |
 | 12 | [12-known-issues-and-deferred-work.md](12-known-issues-and-deferred-work.md) | Known issues, open bugs, deferred work, and validation traps — the live register | 🚧 Living |
@@ -180,9 +182,9 @@ it.
 ## Roadmap: making `rdd` rip UHD via `freeblue`
 
 The algorithms are proven **and the library is implemented** — the decrypt half is
-done and byte-matched to MakeMKV, and freeblue reads protected discs itself via the
-LibreDrive unlock (no MakeMKV); the remaining work is extent resolution + CLI and
-`rdd` integration. (✅ = landed + tested; 🚧 = stub/partial.)
+done and byte-matched to MakeMKV, freeblue reads protected discs itself via the
+LibreDrive unlock (no MakeMKV), and the CLI and rdd's feature-gated backend have
+landed; the remaining work is breadth (spec 12). (✅ = landed + tested; 🚧 = stub/partial.)
 
 **Phase 1 — `freeblue` library** (Rust, spec 08). Lands test-first against the
 vectors proven on real discs (spec 09 §9.10.1, spec 11 §11.4.5):
@@ -203,7 +205,8 @@ vectors proven on real discs (spec 09 §9.10.1, spec 11 §11.4.5):
    **non-BEE** discs; **BEE discs (incl. UHD) need a non-bus-encrypted read.**
 7. `freeblue-core` ✅ — orchestrates `UnitReader` → decrypt → plaintext M2TS
    (`decrypt_clip`, spec 00 §0.4 contract).
-8. `freeblue-cli` 🚧 — `freeblue decrypt`/`verify` binary, still a stub.
+8. `freeblue-cli` ✅ — `freeblue unlock` / `decrypt` / `decrypt-disc` (spec 12
+   §12.10). A `verify` subcommand (spec 09 §9.3) is still to do.
 
 **Phase 2 — Close the v2-only gaps.**
 - v2 MKB types (`0x86` verify etc.) in the parser (spec 03 §3.3.1) — additive.
@@ -215,10 +218,11 @@ vectors proven on real discs (spec 09 §9.10.1, spec 11 §11.4.5):
 - **Key/Volume-ID acquisition strategy** (the real fork):
   - *Disc in the community keydb* → `V`(VUK)+`U`(Unit Key)+`I`(Volume ID) are
     supplied directly; **no drive auth, no device keys needed** — the 80% path,
-    fully working today for ~20k UHD titles (spec 06 §6.5.1).
+    covering the ~20k UHD titles in the community keydb (spec 06 §6.5.1).
   - *Disc not in keydb* → need the **v2 device keys** (user-sourced) + the
-    **Volume ID**, which requires either a v2 P-256 host cert for AACS drive↔host
-    auth or a LibreDrive-style raw read (spec 04 §4.3). Hard path.
+    **Volume ID**, which requires an unrevoked host cert for AACS drive↔host auth
+    (a LibreDrive unlock does not provide it, spec 12 §12.15) or a Volume ID
+    captured by another tool (spec 06 §6.8). Hard path.
 - **Bus encryption (BEE)** — ✅ retired as a blocker (spec 04 §4.3.2, spec 11
   §11.4.6). A *plain* read of a BEE disc returns bus-encrypted data, but **MakeMKV's
   LibreDrive read returns raw sectors with no bus layer** — proven on the TURBO UHD
@@ -227,7 +231,8 @@ vectors proven on real discs (spec 09 §9.10.1, spec 11 §11.4.5):
   key. `bus_decrypt_unit` is retained only for a possible AACS-auth reader.
 
 **Phase 3 — `rdd` integration** (touches rdd spec 02 *disc-access-and-decryption*
-and spec 11 *arm-integration*):
+and spec 11 *arm-integration*). Landed in rdd as an optional `freeblue` Cargo
+feature (off by default; rdd spec 12):
 - Add a **decryption-backend seam** in rdd: today rdd leans on `libbluray`
   (→`libaacs`) for decrypted reads; for UHD, route to `freeblue` instead.
 - **UHD detection** → pick the `freeblue` path; parse BDMV playlists with
